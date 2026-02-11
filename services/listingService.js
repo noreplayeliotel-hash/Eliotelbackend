@@ -278,8 +278,10 @@ class ListingService {
   }
 
   // Rechercher des listings par proximité géographique
-  async searchNearby(longitude, latitude, maxDistance = 10000, filters = {}, page = 1, limit = 10, requestingUserId = null) {
+  async searchNearby(longitude, latitude, maxDistance = 30000, filters = {}, page = 1, limit = 10, requestingUserId = null) {
     try {
+      // Plafonner la distance à 30km (30000 mètres)
+      const effectiveMaxDistance = Math.min(maxDistance, 30000);
       const skip = (page - 1) * limit;
       const blockedUsers = await this._getBlockedUsers(requestingUserId);
 
@@ -291,7 +293,7 @@ class ListingService {
               type: 'Point',
               coordinates: [longitude, latitude]
             },
-            $maxDistance: maxDistance
+            $maxDistance: effectiveMaxDistance
           }
         },
         status: 'active',
@@ -568,7 +570,10 @@ class ListingService {
 
       // Si latitude et longitude sont fournies, utiliser la recherche géographique
       if (filters.latitude && filters.longitude) {
-        const maxDistance = parseFloat(filters.maxDistance) || 100000; // 100km par défaut
+        // Plafonner la distance à 30km (30000 mètres)
+        let maxDistance = parseFloat(filters.maxDistance) || 30000;
+        if (maxDistance > 30000) maxDistance = 30000;
+
         searchCriteria.location = {
           $near: {
             $geometry: {

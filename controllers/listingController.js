@@ -172,7 +172,7 @@ class ListingController {
       // Géolocalisation : filtrer par distance si latitude et longitude sont fournies
       const latitude = req.query.latitude ? parseFloat(req.query.latitude) : null;
       const longitude = req.query.longitude ? parseFloat(req.query.longitude) : null;
-      const maxDistance = req.query.maxDistance ? parseFloat(req.query.maxDistance) : 100; // 100 km par défaut
+      const maxDistance = req.query.maxDistance ? parseFloat(req.query.maxDistance) : 30; // 30 km par défaut
 
       if (latitude && longitude) {
         filters.latitude = latitude;
