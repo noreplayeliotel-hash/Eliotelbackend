@@ -109,6 +109,19 @@ const bookingSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'refunded', 'failed'],
     default: 'pending'
   },
+  paymentMethod: {
+    type: String,
+    enum: {
+      values: ['cash', 'konnect', 'stripe'],
+      message: 'Méthode de paiement doit être cash, konnect ou stripe'
+    },
+    default: 'cash',
+    required: false // Explicitement non obligatoire
+  },
+  paymentLink: {
+    type: String,
+    default: null
+  },
   eliotelPaid: {
     type: Boolean,
     default: false

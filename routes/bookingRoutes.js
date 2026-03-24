@@ -9,7 +9,13 @@ const {
 
 const router = express.Router();
 
-// Toutes les routes nécessitent une authentification
+// Routes publiques (SANS authentification)
+router.get('/:bookingId/payment-info', validateObjectId, bookingController.getPaymentInfo);
+router.post('/:bookingId/init-payment', validateObjectId, bookingController.initKonnectPayment);
+router.post('/:bookingId/create-payment-intent', validateObjectId, bookingController.createStripePaymentIntent);
+router.post('/:bookingId/confirm-stripe-payment', validateObjectId, bookingController.confirmStripePayment);
+
+// Toutes les autres routes nécessitent une authentification
 router.use(auth);
 
 // Routes pour les invités et hôtes

@@ -9,6 +9,11 @@ router.get('/exists', adminController.checkAdminExists);
 router.post('/login', adminController.login);
 router.post('/register-first', adminController.registerFirstAdmin);
 
+// Route publique pour obtenir les listings actifs (page d'accueil)
+router.get('/public/listings', adminController.getPublicListings);
+router.get('/public/listings/:id', adminController.getPublicListingById);
+router.get('/public/listings/:id/reviews', adminController.getPublicListingReviews);
+
 // Toutes les autres routes admin sont protégées
 router.use(auth);
 router.use(requireAdmin);
@@ -18,6 +23,7 @@ router.get('/stats', adminController.getDashboardStats);
 
 // Gestion des utilisateurs
 router.get('/users', adminController.getAllUsers);
+router.post('/users', adminController.createUser);
 router.patch('/users/:userId/status', adminController.updateUserStatus);
 
 // Gestion des listings
@@ -28,7 +34,9 @@ router.patch('/listings/:listingId/status', adminController.updateListingStatus)
 
 // Gestion des réservations
 router.get('/bookings', adminController.getAllBookings);
+router.post('/bookings', adminController.createBooking);
 router.patch('/bookings/:bookingId', adminController.updateBooking);
+router.delete('/bookings/:bookingId', adminController.deleteBooking);
 
 // Facturation hôtes
 router.get('/billing/summary', adminController.getBillingSummary);

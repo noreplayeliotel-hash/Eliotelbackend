@@ -45,7 +45,13 @@ class BookingService {
     // Créer une nouvelle réservation
     async createBooking(bookingData, guestId) {
         try {
-            const { listingId, checkIn, checkOut, guests, specialRequests, guestMessage, paymentStatus, paymentDetails } = bookingData;
+            const { listingId, checkIn, checkOut, guests, specialRequests, guestMessage, paymentStatus, paymentDetails, paymentMethod } = bookingData;
+
+            console.log('🏗️ BookingService.createBooking appelé:');
+            console.log('- guestId:', guestId);
+            console.log('- listingId:', listingId);
+            console.log('- paymentMethod reçu:', paymentMethod);
+            console.log('- bookingData complet:', JSON.stringify(bookingData, null, 2));
 
             // Vérifier que l'annonce existe et est active
             const listing = await Listing.findById(listingId).populate('host');
@@ -92,6 +98,21 @@ class BookingService {
             // Calculer les prix via la nouvelle méthode
             const pricing = await this.calculatePrice(listingId, checkIn, checkOut, totalGuestsCount);
 
+            // Déterminer le statut initial selon la méthode de paiement
+            let initialStatus = 'pending';
+            let initialPaymentStatus = 'pending';
+            
+            // Si paiement en espèces, la réservation est confirmée directement
+            if (paymentMethod === 'cash') {
+                initialStatus = 'confirmed';
+                initialPaymentStatus = 'paid';
+            }
+
+            console.log('📊 Statuts calculés dans le service:');
+            console.log('- paymentMethod:', paymentMethod);
+            console.log('- initialStatus:', initialStatus);
+            console.log('- initialPaymentStatus:', initialPaymentStatus);
+
             // Créer la réservation
             const booking = new Booking({
                 listing: listingId,
@@ -103,12 +124,21 @@ class BookingService {
                 pricing,
                 specialRequests,
                 guestMessage,
-                status: paymentStatus === 'paid' ? 'confirmed' : 'pending',
-                paymentStatus: paymentStatus || 'pending',
+                status: paymentStatus === 'paid' ? 'confirmed' : initialStatus,
+                paymentStatus: paymentStatus || initialPaymentStatus,
+                paymentMethod: paymentMethod || 'cash',
                 paymentDetails: paymentDetails || {}
             });
 
+            console.log('💾 Réservation avant sauvegarde dans le service:');
+            console.log('- paymentMethod:', booking.paymentMethod);
+            console.log('- status:', booking.status);
+            console.log('- paymentStatus:', booking.paymentStatus);
+
             await booking.save();
+
+            console.log('✅ Réservation sauvegardée dans le service avec ID:', booking._id);
+            console.log('- paymentMethod final:', booking.paymentMethod);
 
             // Populer les données pour la réponse
             await booking.populate([

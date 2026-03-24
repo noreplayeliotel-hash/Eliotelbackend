@@ -10,6 +10,12 @@ const notificationService = require('../services/notificationService');
 const mongoose = require('mongoose');
 
 class AdminController {
+    constructor() {
+        // Lier les méthodes au contexte de l'instance
+        this.generateKonnectPaymentLink = this.generateKonnectPaymentLink.bind(this);
+        this.createBooking = this.createBooking.bind(this);
+    }
+
     // Vérifier s'il existe au moins un admin
     async checkAdminExists(req, res, next) {
         try {
@@ -221,6 +227,44 @@ class AdminController {
         }
     }
 
+    // Créer un nouvel utilisateur (Admin)
+    async createUser(req, res, next) {
+        try {
+            const { email, firstName, lastName, phone, password, role = 'guest' } = req.body;
+
+            // Vérifier si l'utilisateur existe déjà
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Un utilisateur avec cet email existe déjà'
+                });
+            }
+
+            // Créer le nouvel utilisateur
+            const user = new User({
+                email,
+                firstName,
+                lastName,
+                phone,
+                password,
+                role,
+                isVerified: true, // Auto-vérifié par l'admin
+                status: 'active'
+            });
+
+            await user.save();
+
+            res.status(201).json({
+                success: true,
+                message: 'Utilisateur créé avec succès',
+                data: user
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     // Mettre à jour le statut d'un utilisateur (ex: suspension)
     async updateUserStatus(req, res, next) {
         try {
@@ -346,6 +390,183 @@ class AdminController {
         }
     }
 
+    // Créer une nouvelle réservation (Admin)
+    async createBooking(req, res, next) {
+        try {
+            const { listing, guest, checkIn, checkOut, guests, pricing, paymentMethod = 'cash' } = req.body;
+
+            console.log('🔍 Données reçues pour création réservation:');
+            console.log('- listing:', listing);
+            console.log('- guest:', guest);
+            console.log('- paymentMethod:', paymentMethod);
+            console.log('- req.body complet:', JSON.stringify(req.body, null, 2));
+
+            // Utiliser le service de réservation au lieu de créer directement
+            const bookingService = require('../services/bookingService');
+            
+            // Préparer les données pour le service
+            const bookingData = {
+                listingId: listing,
+                checkIn,
+                checkOut,
+                guests,
+                specialRequests: req.body.specialRequests || '',
+                guestMessage: req.body.guestMessage || '',
+                paymentStatus: paymentMethod === 'cash' ? 'paid' : 'pending',
+                paymentDetails: {},
+                paymentMethod: paymentMethod
+            };
+
+            console.log('📦 Données préparées pour le service:', JSON.stringify(bookingData, null, 2));
+
+            // Créer la réservation via le service
+            const booking = await bookingService.createBooking(bookingData, guest);
+
+            console.log('✅ Réservation créée via service avec ID:', booking._id);
+            console.log('- paymentMethod final:', booking.paymentMethod);
+            console.log('- status final:', booking.status);
+            console.log('- paymentStatus final:', booking.paymentStatus);
+
+            // Gestion selon la méthode de paiement (avec gestion d'erreur)
+            try {
+                if (paymentMethod === 'konnect') {
+                    // Générer le lien de paiement Konnect
+                    const paymentLink = await this.generateKonnectPaymentLink(booking);
+                    
+                    // Enregistrer le lien de paiement dans la réservation
+                    booking.paymentLink = paymentLink;
+                    await booking.save();
+
+                    // Envoyer l'email avec le lien de paiement (async, ne bloque pas)
+                    emailService.sendPaymentLinkEmail(booking.guest, booking, paymentLink).catch(err => {
+                        console.error('Erreur envoi email Konnect:', err.message);
+                    });
+
+                    // Envoyer une notification push (async, ne bloque pas)
+                    notificationService.sendNotificationToUser(
+                        booking.guest._id,
+                        '💳 Paiement requis',
+                        `Votre réservation pour ${booking.listing.title} est en attente de paiement.`,
+                        {
+                            type: 'payment_required',
+                            bookingId: booking._id.toString(),
+                            paymentLink: paymentLink
+                        }
+                    ).catch(err => {
+                        console.error('Erreur notification Konnect:', err.message);
+                    });
+                } else if (paymentMethod === 'stripe') {
+                    // Pour Stripe, on peut générer un lien de paiement ou rediriger vers la page de paiement
+                    const stripePaymentUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/${booking._id}?method=stripe`;
+                    booking.paymentLink = stripePaymentUrl;
+                    await booking.save();
+
+                    // Envoyer l'email avec le lien de paiement Stripe (async, ne bloque pas)
+                    emailService.sendPaymentLinkEmail(booking.guest, booking, stripePaymentUrl).catch(err => {
+                        console.error('Erreur envoi email Stripe:', err.message);
+                    });
+
+                    // Envoyer une notification push (async, ne bloque pas)
+                    notificationService.sendNotificationToUser(
+                        booking.guest._id,
+                        '💳 Paiement par carte requis',
+                        `Votre réservation pour ${booking.listing.title} est en attente de paiement par carte.`,
+                        {
+                            type: 'payment_required',
+                            bookingId: booking._id.toString(),
+                            paymentLink: stripePaymentUrl
+                        }
+                    ).catch(err => {
+                        console.error('Erreur notification Stripe:', err.message);
+                    });
+                } else if (paymentMethod === 'cash') {
+                    // Pour le paiement en espèces, envoyer une confirmation directe (async, ne bloque pas)
+                    emailService.sendBookingConfirmedEmail(booking.guest.email, booking).catch(err => {
+                        console.error('Erreur envoi email confirmation:', err.message);
+                    });
+                    
+                    // Notifier l'hôte de la nouvelle réservation confirmée (async, ne bloque pas)
+                    notificationService.sendNotificationToUser(
+                        booking.host._id,
+                        '🎉 Nouvelle réservation confirmée',
+                        `${booking.guest.firstName} ${booking.guest.lastName} a réservé ${booking.listing.title} (paiement en espèces).`,
+                        {
+                            type: 'booking_confirmed',
+                            bookingId: booking._id.toString()
+                        }
+                    ).catch(err => {
+                        console.error('Erreur notification hôte:', err.message);
+                    });
+                }
+            } catch (notificationError) {
+                console.error('Erreur lors de l\'envoi des notifications:', notificationError.message);
+                // Ne pas faire échouer la création de réservation pour des erreurs de notification
+            }
+
+            res.status(201).json({
+                success: true,
+                message: paymentMethod === 'cash' 
+                    ? 'Réservation créée et confirmée avec succès (paiement en espèces).'
+                    : `Réservation créée avec succès. Un lien de paiement ${paymentMethod === 'stripe' ? 'Stripe' : 'Konnect'} a été envoyé au voyageur.`,
+                data: {
+                    booking,
+                    paymentLink: booking.paymentLink
+                }
+            });
+        } catch (error) {
+            console.error('Error creating booking:', error);
+            next(error);
+        }
+    }
+
+    // Générer un lien de paiement Konnect
+    async generateKonnectPaymentLink(booking) {
+        try {
+            // Configuration Konnect
+            const konnectApiUrl = process.env.KONNECT_API_URL || 'https://api.konnect.network/api/v2';
+            const konnectApiKey = process.env.KONNECT_API_KEY;
+            const konnectWalletId = process.env.KONNECT_WALLET_ID;
+
+            if (!konnectApiKey || !konnectWalletId) {
+                console.warn('Konnect credentials not configured. Using site payment link.');
+                return `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/${booking._id}`;
+            }
+
+            // Créer une demande de paiement Konnect
+            const axios = require('axios');
+            const response = await axios.post(
+                `${konnectApiUrl}/payments/init-payment`,
+                {
+                    receiverWalletId: konnectWalletId,
+                    amount: Math.round(booking.pricing.total * 1000), // Montant en millimes
+                    token: 'TND',
+                    type: 'immediate',
+                    description: `Réservation ${booking._id}`,
+                    acceptedPaymentMethods: ['wallet', 'bank_card', 'e-DINAR'],
+                    lifespan: 24, // Lien valide 24h
+                    checkoutForm: true,
+                    addPaymentFeesToAmount: true,
+                    webhook: `${process.env.BACKEND_URL || 'http://localhost:3002'}/api/webhooks/konnect`,
+                    silentWebhook: true,
+                    successUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking-success/${booking._id}`,
+                    failUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking-failed/${booking._id}`,
+                    theme: 'light'
+                },
+                {
+                    headers: {
+                        'x-api-key': konnectApiKey
+                    }
+                }
+            );
+
+            return response.data.payUrl;
+        } catch (error) {
+            console.error('Error generating Konnect payment link:', error);
+            // Fallback: retourner un lien de paiement vers notre site
+            return `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/${booking._id}`;
+        }
+    }
+
     // Mettre à jour une réservation (statut ou dates)
     async updateBooking(req, res, next) {
         try {
@@ -379,6 +600,32 @@ class AdminController {
         } catch (error) {
             console.error('Error updating booking:', error);
             res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    // Supprimer une réservation (Admin)
+    async deleteBooking(req, res, next) {
+        try {
+            const { bookingId } = req.params;
+
+            const booking = await Booking.findById(bookingId);
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Réservation non trouvée'
+                });
+            }
+
+            // Supprimer la réservation
+            await Booking.findByIdAndDelete(bookingId);
+
+            res.status(200).json({
+                success: true,
+                message: 'Réservation supprimée avec succès'
+            });
+        } catch (error) {
+            console.error('Error deleting booking:', error);
+            next(error);
         }
     }
 
@@ -790,6 +1037,78 @@ class AdminController {
             });
         } catch (error) {
             console.error('Error in sendBroadcastNotification:', error);
+            next(error);
+        }
+    }
+
+    // Obtenir les listings publics (route publique pour la page d'accueil)
+    async getPublicListings(req, res, next) {
+        try {
+            // Récupérer uniquement les listings actifs
+            const listings = await Listing.find({ status: 'active' })
+                .populate('host', 'firstName lastName avatar')
+                .select('title description images address capacity pricing propertyType roomType ratings')
+                .sort({ createdAt: -1 })
+                .limit(50)
+                .lean();
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    listings,
+                    total: listings.length
+                }
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    // Obtenir un listing public spécifique par ID
+    async getPublicListingById(req, res, next) {
+        try {
+            const { id } = req.params;
+            
+            const listing = await Listing.findOne({ _id: id, status: 'active' })
+                .populate('host', 'firstName lastName avatar email')
+                .lean();
+
+            if (!listing) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Logement non trouvé'
+                });
+            }
+
+            res.status(200).json({
+                success: true,
+                data: listing
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    // Obtenir les avis publics d'un listing
+    async getPublicListingReviews(req, res, next) {
+        try {
+            const { id } = req.params;
+            const Review = require('../models/Review');
+            
+            const reviews = await Review.find({ 
+                listing: id, 
+                reviewerRole: 'guest' 
+            })
+                .populate('reviewer', 'firstName lastName avatar')
+                .sort({ createdAt: -1 })
+                .limit(20)
+                .lean();
+
+            res.status(200).json({
+                success: true,
+                data: reviews
+            });
+        } catch (error) {
             next(error);
         }
     }

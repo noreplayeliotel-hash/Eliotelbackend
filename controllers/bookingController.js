@@ -385,6 +385,317 @@ class BookingController {
       next(error);
     }
   }
+
+  // Obtenir les informations de paiement (route publique)
+  async getPaymentInfo(req, res, next) {
+    try {
+      const { bookingId } = req.params;
+      
+      // Récupérer directement la réservation sans vérification d'autorisation
+      const Booking = require('../models/Booking');
+      const booking = await Booking.findById(bookingId)
+        .populate('listing', 'title images address')
+        .populate('guest', 'firstName lastName email')
+        .lean();
+      
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Réservation non trouvée'
+        });
+      }
+
+      // Retourner uniquement les informations nécessaires pour la page de paiement
+      const paymentInfo = {
+        _id: booking._id,
+        listing: {
+          title: booking.listing.title,
+          images: booking.listing.images,
+          address: booking.listing.address
+        },
+        guest: {
+          firstName: booking.guest.firstName,
+          lastName: booking.guest.lastName,
+          email: booking.guest.email
+        },
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        pricing: booking.pricing,
+        status: booking.status,
+        paymentStatus: booking.paymentStatus,
+        paymentMethod: booking.paymentMethod,
+        paymentLink: booking.paymentLink
+      };
+
+      res.status(200).json({
+        success: true,
+        data: paymentInfo
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Initialiser un paiement Konnect (route publique)
+  async initKonnectPayment(req, res, next) {
+    try {
+      const { bookingId } = req.params;
+      
+      // Récupérer la réservation
+      const Booking = require('../models/Booking');
+      const booking = await Booking.findById(bookingId)
+        .populate('guest', 'firstName lastName email phone')
+        .lean();
+      
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Réservation non trouvée'
+        });
+      }
+
+      // Configuration Konnect
+      const konnectApiUrl = process.env.KONNECT_API_URL || 'https://api.konnect.network/api/v2';
+      const konnectApiKey = process.env.KONNECT_API_KEY;
+      const konnectWalletId = process.env.KONNECT_WALLET_ID;
+
+      if (!konnectApiKey || !konnectWalletId) {
+        return res.status(500).json({
+          success: false,
+          message: 'Configuration Konnect manquante'
+        });
+      }
+
+      // Créer une demande de paiement Konnect
+      const axios = require('axios');
+      const apiUrl = konnectApiUrl.endsWith('/') ? konnectApiUrl : `${konnectApiUrl}/`;
+      
+      // Convertir le montant en centimes pour EUR (ou millimes pour TND)
+      const currency = booking.pricing.currency || 'EUR';
+      const amount = currency === 'TND' 
+        ? Math.round(booking.pricing.total * 1000) // Millimes pour TND
+        : Math.round(booking.pricing.total * 100);  // Centimes pour EUR/USD
+      
+      const response = await axios.post(
+        `${apiUrl}payments/init-payment`,
+        {
+          receiverWalletId: konnectWalletId,
+          amount: amount,
+          token: currency,
+          type: 'immediate',
+          description: `Réservation ${booking._id}`,
+          acceptedPaymentMethods: ['wallet', 'bank_card', 'e-DINAR'],
+          lifespan: 60, // Maximum 60 minutes
+          checkoutForm: true,
+          addPaymentFeesToAmount: true,
+          firstName: booking.guest.firstName,
+          lastName: booking.guest.lastName,
+          email: booking.guest.email,
+          phoneNumber: booking.guest.phone || '',
+          orderId: booking._id.toString(),
+          webhook: `${process.env.BACKEND_URL || 'http://localhost:3002'}/api/webhooks/konnect`,
+          silentWebhook: true,
+          successUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking-success/${booking._id}`,
+          failUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking-failed/${booking._id}`,
+          theme: 'light'
+        },
+        {
+          headers: {
+            'x-api-key': konnectApiKey
+          }
+        }
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          payUrl: response.data.payUrl,
+          paymentRef: response.data.paymentRef
+        }
+      });
+    } catch (error) {
+      console.error('Error initializing Konnect payment:', error);
+      
+      // Log détaillé de l'erreur Konnect
+      if (error.response) {
+        console.error('Konnect API Error Response:', {
+          status: error.response.status,
+          data: error.response.data,
+          headers: error.response.headers
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: error.response?.data?.errors 
+          ? `Erreur Konnect: ${JSON.stringify(error.response.data.errors)}` 
+          : 'Erreur lors de l\'initialisation du paiement',
+        details: error.response?.data
+      });
+    }
+  }
+
+  // Créer un PaymentIntent Stripe (route publique)
+  async createStripePaymentIntent(req, res, next) {
+    try {
+      const { bookingId } = req.params;
+      
+      console.log('🔍 Création PaymentIntent pour booking:', bookingId);
+      
+      // Récupérer la réservation
+      const Booking = require('../models/Booking');
+      const booking = await Booking.findById(bookingId)
+        .populate('guest', 'firstName lastName email')
+        .lean();
+      
+      if (!booking) {
+        console.log('❌ Réservation non trouvée:', bookingId);
+        return res.status(404).json({
+          success: false,
+          message: 'Réservation non trouvée'
+        });
+      }
+
+      console.log('📋 Réservation trouvée:', {
+        id: booking._id,
+        total: booking.pricing.total,
+        currency: booking.pricing.currency,
+        paymentStatus: booking.paymentStatus
+      });
+
+      // Vérifier que la réservation n'est pas déjà payée
+      if (booking.paymentStatus === 'paid') {
+        console.log('⚠️ Réservation déjà payée');
+        return res.status(400).json({
+          success: false,
+          message: 'Cette réservation est déjà payée'
+        });
+      }
+
+      // Initialiser Stripe
+      console.log('🔧 Initialisation Stripe avec clé:', process.env.STRIPE_SECRET_KEY ? 'Configurée' : 'Manquante');
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      
+      // Convertir le montant en centimes
+      const amount = Math.round(booking.pricing.total * 100);
+      console.log('💰 Montant calculé:', { original: booking.pricing.total, centimes: amount });
+      
+      // Créer un PaymentIntent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: booking.pricing.currency.toLowerCase(),
+        metadata: {
+          bookingId: booking._id.toString(),
+          guestEmail: booking.guest.email,
+          guestName: `${booking.guest.firstName} ${booking.guest.lastName}`
+        },
+        description: `Réservation ${booking._id}`,
+        receipt_email: booking.guest.email
+      });
+
+      console.log('✅ PaymentIntent créé:', paymentIntent.id);
+
+      const responseData = {
+        success: true,
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id
+        }
+      };
+
+      console.log('📤 Réponse envoyée au frontend:', responseData);
+
+      res.status(200).json(responseData);
+    } catch (error) {
+      console.error('❌ Erreur création PaymentIntent:', error);
+      
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la création du paiement Stripe',
+        details: error.message
+      });
+    }
+  }
+
+  // Confirmer un paiement Stripe et mettre à jour la réservation (route publique)
+  async confirmStripePayment(req, res, next) {
+    try {
+      const { bookingId } = req.params;
+      const { paymentIntentId } = req.body;
+      
+      console.log('🔄 Confirmation paiement Stripe pour booking:', bookingId);
+      console.log('💳 PaymentIntent ID:', paymentIntentId);
+      
+      // Récupérer la réservation
+      const Booking = require('../models/Booking');
+      const booking = await Booking.findById(bookingId)
+        .populate('guest', 'firstName lastName email')
+        .populate('listing', 'title')
+        .populate('host', 'firstName lastName email');
+      
+      if (!booking) {
+        console.log('❌ Réservation non trouvée:', bookingId);
+        return res.status(404).json({
+          success: false,
+          message: 'Réservation non trouvée'
+        });
+      }
+
+      // Vérifier le paiement avec Stripe
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      console.log('📊 Statut PaymentIntent:', paymentIntent.status);
+      
+      if (paymentIntent.status === 'succeeded') {
+        // Mettre à jour la réservation
+        booking.paymentStatus = 'paid';
+        booking.status = 'confirmed';
+        booking.paymentDetails.transactionId = paymentIntentId;
+        booking.paymentDetails.paymentDate = new Date();
+        
+        await booking.save();
+        
+        console.log('✅ Réservation mise à jour:', {
+          id: booking._id,
+          status: booking.status,
+          paymentStatus: booking.paymentStatus
+        });
+
+        // Envoyer email de confirmation (async, ne bloque pas)
+        const emailService = require('../services/emailService');
+        emailService.sendBookingConfirmedEmail(booking.guest.email, booking).catch(err => {
+          console.error('Erreur envoi email confirmation:', err.message);
+        });
+
+        res.status(200).json({
+          success: true,
+          message: 'Paiement confirmé et réservation mise à jour',
+          data: {
+            booking: {
+              _id: booking._id,
+              status: booking.status,
+              paymentStatus: booking.paymentStatus
+            }
+          }
+        });
+      } else {
+        console.log('⚠️ Paiement non réussi:', paymentIntent.status);
+        res.status(400).json({
+          success: false,
+          message: `Paiement non confirmé. Statut: ${paymentIntent.status}`
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erreur confirmation paiement:', error);
+      
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la confirmation du paiement',
+        details: error.message
+      });
+    }
+  }
 }
 
 module.exports = new BookingController();

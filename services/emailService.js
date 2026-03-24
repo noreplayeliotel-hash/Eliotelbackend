@@ -269,6 +269,90 @@ class EmailService {
             console.error('Error sending payment confirmation email:', error);
         }
     }
+
+    async sendPaymentLinkEmail(guest, booking, paymentLink) {
+        const checkInDate = new Date(booking.checkIn).toLocaleDateString('fr-FR', { 
+            day: 'numeric', 
+            month: 'long', 
+            year: 'numeric' 
+        });
+        const checkOutDate = new Date(booking.checkOut).toLocaleDateString('fr-FR', { 
+            day: 'numeric', 
+            month: 'long', 
+            year: 'numeric' 
+        });
+
+        const mailOptions = {
+            from: `"Eliotel" <${process.env.EMAIL_USER}>`,
+            to: guest.email,
+            subject: '💳 Finalisez votre réservation - Paiement requis',
+            html: `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 650px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; color: #333;">
+            <div style="background-color: #FF385C; padding: 30px; text-align: center; color: white;">
+                <h1 style="margin: 0; font-size: 28px;">💳 Paiement Requis</h1>
+                <p style="margin: 10px 0 0; opacity: 0.9;">Finalisez votre réservation</p>
+            </div>
+            
+            <div style="padding: 30px; background-color: white;">
+                <p style="font-size: 16px; margin-top: 0;">Bonjour <strong>${guest.firstName}</strong>,</p>
+                <p style="font-size: 15px; color: #555;">Votre réservation a été créée avec succès ! Pour la confirmer, veuillez procéder au paiement.</p>
+                
+                <div style="background-color: #f8f9fa; border-left: 4px solid #FF385C; padding: 20px; margin: 25px 0; border-radius: 4px;">
+                    <h3 style="margin-top: 0; color: #333;">Détails de la réservation</h3>
+                    <div style="margin: 10px 0;">
+                        <strong>Annonce :</strong> ${booking.listing.title}
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <strong>Dates :</strong> Du ${checkInDate} au ${checkOutDate}
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <strong>Voyageurs :</strong> ${booking.guests.adults} adulte(s)
+                    </div>
+                    <div style="margin: 15px 0; padding-top: 15px; border-top: 1px solid #eee;">
+                        <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Montant Total</div>
+                        <div style="font-size: 32px; font-weight: bold; color: #FF385C;">${booking.pricing.total} ${booking.pricing.currency}</div>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin: 35px 0;">
+                    <a href="${paymentLink}" style="display: inline-block; background-color: #FF385C; color: white; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold; box-shadow: 0 4px 12px rgba(255, 56, 92, 0.3);">
+                        Payer Maintenant
+                    </a>
+                </div>
+
+                <div style="background-color: #fff8e1; padding: 20px; border-radius: 8px; margin: 25px 0;">
+                    <p style="margin: 0; font-size: 14px; color: #f57c00;">
+                        <strong>⏰ Important :</strong> Ce lien de paiement est valable pendant 24 heures. Passé ce délai, votre réservation sera automatiquement annulée.
+                    </p>
+                </div>
+
+                <div style="margin-top: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #333;">Paiement sécurisé avec Konnect</h4>
+                    <p style="font-size: 13px; color: #666; margin: 5px 0;">
+                        ✓ Paiement par carte bancaire<br>
+                        ✓ Paiement par e-Dinar<br>
+                        ✓ Paiement par wallet Konnect<br>
+                        ✓ Transaction 100% sécurisée
+                    </p>
+                </div>
+
+                <div style="margin-top: 40px; text-align: center; color: #888; font-size: 13px;">
+                    <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+                    <p style="margin-top: 15px;">L'équipe Eliotel<br>© ${new Date().getFullYear()} Eliotel</p>
+                </div>
+            </div>
+        </div>
+      `
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('Payment link email sent to:', guest.email);
+        } catch (error) {
+            console.error('Error sending payment link email:', error);
+            throw new Error('Erreur lors de l\'envoi de l\'email de paiement');
+        }
+    }
 }
 
 module.exports = new EmailService();
