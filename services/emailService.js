@@ -11,6 +11,56 @@ class EmailService {
         });
     }
 
+    async sendChatMessageEmail(to, recipientFirstName, senderName, messageText, chatId, subject, checkIn, checkOut) {
+        const emailSubject = subject || `Nouveau message de ${senderName}`;
+
+        // Bloc dates si présentes
+        let datesBlock = '';
+        if (checkIn && checkOut) {
+            const fmt = (d) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            const nights = Math.round((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24));
+            datesBlock = `
+            <div style="background-color: #fff3f5; border: 1px solid #FF385C; border-radius: 8px; padding: 14px 18px; margin: 16px 0;">
+              <div style="font-size: 13px; color: #FF385C; font-weight: bold; margin-bottom: 8px;">📅 Dates demandées</div>
+              <div style="font-size: 14px; color: #333;">Arrivée : <strong>${fmt(checkIn)}</strong></div>
+              <div style="font-size: 14px; color: #333; margin-top: 4px;">Départ : <strong>${fmt(checkOut)}</strong></div>
+              <div style="font-size: 13px; color: #666; margin-top: 4px;">${nights} nuit${nights > 1 ? 's' : ''}</div>
+            </div>`;
+        }
+
+        const mailOptions = {
+            from: `"Eliotel" <${process.env.EMAIL_USER}>`,
+            to,
+            subject: emailSubject,
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <div style="background-color: #FF385C; padding: 24px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">Nouveau message</h1>
+          </div>
+          <div style="padding: 28px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+            <p style="font-size: 15px;">Bonjour <strong>${recipientFirstName}</strong>,</p>
+            <p style="font-size: 15px;">Vous avez reçu un nouveau message de <strong>${senderName}</strong> :</p>
+            ${datesBlock}
+            <div style="background-color: #f9f9f9; border-left: 4px solid #FF385C; padding: 16px 20px; margin: 20px 0; border-radius: 4px;">
+              <p style="margin: 0; font-size: 15px; color: #444; line-height: 1.6; white-space: pre-line;">${messageText}</p>
+            </div>
+            <p style="font-size: 13px; color: #888;">Connectez-vous à l'application Eliotel pour répondre à ce message.</p>
+            <br>
+            <p style="font-size: 14px;">Cordialement,<br><strong>L'équipe Eliotel</strong></p>
+          </div>
+        </div>
+      `
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('Chat message email sent to:', to);
+        } catch (error) {
+            console.error('Error sending chat message email:', error);
+            throw error;
+        }
+    }
+
     async sendPasswordResetEmail(to, code) {
         const mailOptions = {
             from: `"Eliotel" <${process.env.EMAIL_USER}>`,

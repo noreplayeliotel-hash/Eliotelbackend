@@ -4,8 +4,23 @@ const User = require('../models/User');
 const notificationService = require('./notificationService');
 const emailService = require('./emailService');
 
+// Retourne le prix applicable pour une nuit donnée (saisonnier ou base)
+function getSeasonalPrice(date, basePrice, seasonalPricing) {
+    if (!seasonalPricing || seasonalPricing.length === 0) return basePrice;
+    const d = new Date(date);
+    d.setHours(12, 0, 0, 0);
+    for (const season of seasonalPricing) {
+        const start = new Date(season.startDate);
+        const end = new Date(season.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        if (d >= start && d <= end) return season.price;
+    }
+    return basePrice;
+}
+
 class BookingService {
-    // Calculer le prix d'une réservation
+    // Calculer le prix d'une réservation (avec prix saisonniers)
     async calculatePrice(listingId, checkIn, checkOut, guestsCount) {
         try {
             const listing = await Listing.findById(listingId);
@@ -21,10 +36,18 @@ class BookingService {
                 throw new Error('La date de départ doit être après la date d\'arrivée');
             }
 
-            const subtotal = listing.pricing.basePrice * nights;
+            // Calcul nuit par nuit avec prix saisonniers
+            let subtotal = 0;
+            const seasonal = listing.pricing.seasonalPricing || [];
+            for (let i = 0; i < nights; i++) {
+                const night = new Date(checkInDate);
+                night.setDate(night.getDate() + i);
+                const price = getSeasonalPrice(night, listing.pricing.basePrice, seasonal);
+                subtotal += price;
+            }
+
             const cleaningFee = listing.pricing.cleaningFee || 0;
             const serviceFee = listing.pricing.serviceFee || 0;
-            const taxes = 0;
             const total = subtotal + cleaningFee + serviceFee;
 
             return {
@@ -33,13 +56,52 @@ class BookingService {
                 subtotal,
                 cleaningFee,
                 serviceFee,
-                taxes,
+                taxes: 0,
                 total,
                 currency: listing.pricing.currency
             };
         } catch (error) {
             throw error;
         }
+    }
+
+    // Valider une réservation SANS la créer (appelé avant le paiement)
+    async validateBooking(bookingData, guestId) {
+        const { listingId, checkIn, checkOut, guests } = bookingData;
+
+        const listing = await Listing.findById(listingId).populate('host');
+        if (!listing) throw new Error('Annonce non trouvée');
+        if (listing.status !== 'active') throw new Error('Cette annonce n\'est pas disponible');
+        if (listing.host._id.toString() === guestId) throw new Error('Vous ne pouvez pas réserver votre propre annonce');
+
+        const totalGuestsCount = guests.adults + guests.children + guests.infants;
+        if (totalGuestsCount > listing.capacity.guests) {
+            throw new Error(`Cette annonce ne peut accueillir que ${listing.capacity.guests} invités`);
+        }
+        if (guests.pets > 0 && !listing.houseRules.petsAllowed) {
+            throw new Error('Les animaux ne sont pas autorisés dans cette annonce');
+        }
+
+        const checkInDate = new Date(checkIn);
+        const checkOutDate = new Date(checkOut);
+        const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
+        if (!isAvailable) throw new Error('Ces dates ne sont pas disponibles');
+
+        // Vérifier les blocs externes (réservations manuelles)
+        const hasExternalBlock = (listing.externalBlocks || []).some(block =>
+            new Date(block.startDate) < checkOutDate && new Date(block.endDate) > checkInDate
+        );
+        if (hasExternalBlock) throw new Error('Ces dates ne sont pas disponibles (bloquées par l\'hôte)');
+
+        const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
+        if (nights < listing.availability.minStay) {
+            throw new Error(`Séjour minimum de ${listing.availability.minStay} nuit(s) requis`);
+        }
+        if (nights > listing.availability.maxStay) {
+            throw new Error(`Séjour maximum de ${listing.availability.maxStay} nuit(s) autorisé`);
+        }
+
+        return { valid: true };
     }
 
     // Créer une nouvelle réservation
@@ -84,6 +146,14 @@ class BookingService {
             const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
             if (!isAvailable) {
                 throw new Error('Ces dates ne sont pas disponibles');
+            }
+
+            // Vérifier les blocs externes (réservations manuelles de l'hôte)
+            const hasExternalBlock = (listing.externalBlocks || []).some(block =>
+                new Date(block.startDate) < checkOutDate && new Date(block.endDate) > checkInDate
+            );
+            if (hasExternalBlock) {
+                throw new Error('Ces dates ne sont pas disponibles (bloquées par l\'hôte)');
             }
 
             // Vérifier minStay/maxStay
@@ -540,30 +610,35 @@ class BookingService {
                 listing: listingId,
                 status: { $in: ['confirmed', 'pending'] },
                 $or: [
-                    {
-                        checkIn: { $gte: new Date(startDate), $lte: new Date(endDate) }
-                    },
-                    {
-                        checkOut: { $gte: new Date(startDate), $lte: new Date(endDate) }
-                    },
-                    {
-                        checkIn: { $lte: new Date(startDate) },
-                        checkOut: { $gte: new Date(endDate) }
-                    }
+                    { checkIn: { $gte: new Date(startDate), $lte: new Date(endDate) } },
+                    { checkOut: { $gte: new Date(startDate), $lte: new Date(endDate) } },
+                    { checkIn: { $lte: new Date(startDate) }, checkOut: { $gte: new Date(endDate) } }
                 ]
             }).select('checkIn checkOut status');
 
-            // Générer toutes les dates occupées
+            // Générer toutes les dates occupées par réservations
             const occupiedDates = [];
             bookings.forEach(booking => {
                 const current = new Date(booking.checkIn);
                 const end = new Date(booking.checkOut);
-
                 while (current < end) {
-                    occupiedDates.push({
-                        date: new Date(current),
-                        status: booking.status
-                    });
+                    occupiedDates.push({ date: new Date(current), status: booking.status });
+                    current.setDate(current.getDate() + 1);
+                }
+            });
+
+            // Ajouter les dates bloquées par les blocs externes
+            const rangeStart = new Date(startDate);
+            const rangeEnd = new Date(endDate);
+            const externalBlocks = listing.externalBlocks || [];
+            externalBlocks.forEach(block => {
+                const blockStart = new Date(block.startDate);
+                const blockEnd = new Date(block.endDate);
+                // Intersection avec la plage demandée
+                const current = new Date(Math.max(blockStart, rangeStart));
+                const end = new Date(Math.min(blockEnd, rangeEnd));
+                while (current < end) {
+                    occupiedDates.push({ date: new Date(current), status: 'blocked' });
                     current.setDate(current.getDate() + 1);
                 }
             });

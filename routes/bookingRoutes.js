@@ -20,6 +20,7 @@ router.use(auth);
 
 // Routes pour les invités et hôtes
 router.post('/', validateBookingCreation, bookingController.createBooking);
+router.post('/validate', bookingController.validateBooking);
 router.post('/calculate-price', bookingController.calculatePrice);
 router.get('/my', bookingController.getMyBookings);
 router.get('/stats', requireHost, bookingController.getBookingStats);

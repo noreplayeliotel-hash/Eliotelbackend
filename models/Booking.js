@@ -212,15 +212,17 @@ bookingSchema.pre('save', function (next) {
 
 // Méthode pour vérifier les conflits de dates
 bookingSchema.statics.checkAvailability = async function (listingId, checkIn, checkOut, excludeBookingId = null) {
+  // Une réservation pending de plus de 30 minutes est considérée expirée
+  const pendingExpiry = new Date(Date.now() - 30 * 60 * 1000);
+
   const query = {
     listing: listingId,
-    status: { $in: ['confirmed', 'pending'] },
     $or: [
-      {
-        checkIn: { $lt: checkOut },
-        checkOut: { $gt: checkIn }
-      }
-    ]
+      { status: 'confirmed' },
+      { status: 'pending', createdAt: { $gt: pendingExpiry } }
+    ],
+    checkIn: { $lt: checkOut },
+    checkOut: { $gt: checkIn }
   };
 
   if (excludeBookingId) {

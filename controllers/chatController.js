@@ -1,4 +1,5 @@
 const notificationService = require('../services/notificationService');
+const emailService = require('../services/emailService');
 const User = require('../models/User');
 
 class ChatController {
@@ -8,10 +9,9 @@ class ChatController {
    */
   async sendChatNotification(req, res, next) {
     try {
-      const senderId = req.user.userId; // Utilisateur authentifié
-      const { recipientId, senderName, messageText, chatId } = req.body;
+      const senderId = req.user.userId;
+      const { recipientId, senderName, messageText, chatId, checkIn, checkOut, listingTitle } = req.body;
 
-      // Validation
       if (!recipientId || !senderName || !messageText || !chatId) {
         return res.status(400).json({
           success: false,
@@ -19,76 +19,71 @@ class ChatController {
         });
       }
 
-      // Vérifier que l'expéditeur est bien l'utilisateur authentifié
       const sender = await User.findById(senderId).select('firstName lastName');
       if (!sender) {
-        return res.status(404).json({
-          success: false,
-          message: 'Expéditeur non trouvé',
-        });
+        return res.status(404).json({ success: false, message: 'Expéditeur non trouvé' });
       }
 
-      // Vérifier que le nom de l'expéditeur correspond
       const fullName = `${sender.firstName} ${sender.lastName}`;
       if (fullName !== senderName) {
-        return res.status(403).json({
-          success: false,
-          message: 'Nom de l\'expéditeur ne correspond pas',
-        });
+        return res.status(403).json({ success: false, message: "Nom de l'expéditeur ne correspond pas" });
       }
 
-      // Vérifier que le destinataire existe
-      const recipient = await User.findById(recipientId).select('fcmToken firstName lastName');
+      const recipient = await User.findById(recipientId).select('fcmToken firstName lastName email');
       if (!recipient) {
-        return res.status(404).json({
-          success: false,
-          message: 'Destinataire non trouvé',
-        });
+        return res.status(404).json({ success: false, message: 'Destinataire non trouvé' });
       }
 
-      // Vérifier que l'expéditeur n'envoie pas à lui-même
       if (senderId === recipientId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Impossible d\'envoyer une notification à soi-même',
-        });
+        return res.status(400).json({ success: false, message: "Impossible d'envoyer une notification à soi-même" });
       }
 
-      // Tronquer le message si trop long
       let displayText = messageText;
-      if (displayText.length > 100) {
-        displayText = displayText.substring(0, 100) + '...';
+      if (displayText.length > 100) displayText = displayText.substring(0, 100) + '...';
+
+      // Construire l'objet email style Airbnb :
+      // "Objet : Demande d'information pour [titre], [jourA]–[jourD] [mois]"
+      let emailSubject = `Demande d'information — ${senderName}`;
+      if (checkIn && checkOut && listingTitle) {
+        const dIn = new Date(checkIn);
+        const dOut = new Date(checkOut);
+        const sameMonth = dIn.getMonth() === dOut.getMonth() && dIn.getFullYear() === dOut.getFullYear();
+        const monthName = dIn.toLocaleDateString('fr-FR', { month: 'long' });
+        const yearStr = dIn.getFullYear() !== new Date().getFullYear() ? ` ${dIn.getFullYear()}` : '';
+        const dateRange = sameMonth
+          ? `${dIn.getDate()}–${dOut.getDate()} ${monthName}${yearStr}`
+          : `${dIn.getDate()} ${dIn.toLocaleDateString('fr-FR', { month: 'long' })} – ${dOut.getDate()} ${dOut.toLocaleDateString('fr-FR', { month: 'long' })}${yearStr}`;
+        emailSubject = `Objet : Demande d'information pour ${listingTitle}, ${dateRange}`;
+      } else if (listingTitle) {
+        emailSubject = `Objet : Nouveau message concernant ${listingTitle}`;
       }
 
-      // Envoyer la notification FCM
       const result = await notificationService.sendNotificationToUser(
         recipientId,
         `💬 ${senderName}`,
         displayText,
-        {
-          type: 'chat_message',
-          chatId: chatId,
-          senderId: senderId,
-          senderName: senderName,
-        }
+        { type: 'chat_message', chatId, senderId, senderName }
       );
 
-      if (result.success) {
-        return res.status(200).json({
-          success: true,
-          message: 'Notification envoyée avec succès',
-          data: {
-            recipient: `${recipient.firstName} ${recipient.lastName}`,
-            messageId: result.messageId,
-          },
-        });
-      } else {
-        return res.status(500).json({
-          success: false,
-          message: 'Échec de l\'envoi de la notification',
-          error: result.message,
-        });
+      // Email Gmail en parallèle
+      if (recipient.email) {
+        emailService.sendChatMessageEmail(
+          recipient.email,
+          recipient.firstName,
+          senderName,
+          messageText,
+          chatId,
+          emailSubject,
+          checkIn,
+          checkOut
+        ).catch(err => console.error('Erreur envoi email chat:', err));
       }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Notification envoyée avec succès',
+        data: { recipient: `${recipient.firstName} ${recipient.lastName}`, messageId: result.messageId },
+      });
     } catch (error) {
       next(error);
     }

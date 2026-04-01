@@ -37,4 +37,9 @@ router.put('/:listingId', [requireHost, upload.array('newImages', 10), uploadToI
 router.delete('/:listingId', [requireHost, validateObjectId], listingController.deleteListing);
 router.patch('/:listingId/status', [requireHost, validateObjectId, validateStatusUpdate], listingController.updateListingStatus);
 
+// Routes pour les blocs externes (dates indisponibles)
+router.get('/:listingId/external-blocks', [auth, requireHost], listingController.getExternalBlocks);
+router.post('/:listingId/external-blocks', [auth, requireHost], listingController.addExternalBlock);
+router.delete('/:listingId/external-blocks/:blockId', [auth, requireHost], listingController.deleteExternalBlock);
+
 module.exports = router;

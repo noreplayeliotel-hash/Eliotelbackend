@@ -208,10 +208,21 @@ class ListingService {
           select: 'firstName lastName avatar role createdAt hostProfile'
         });
 
+        // Exclure les listings bloqués par externalBlocks pour aujourd'hui
+        const now = new Date();
+        const blockedIds = await Listing.find({
+          _id: { $in: listings.map(l => l._id) },
+          externalBlocks: {
+            $elemMatch: { startDate: { $lte: now }, endDate: { $gt: now } }
+          }
+        }).select('_id');
+        const blockedSet = new Set(blockedIds.map(l => l._id.toString()));
+        const filteredListings = listings.filter(l => !blockedSet.has(l._id.toString()));
+
         console.log(`📍 Recherche géolocalisée: ${allListings.length} listings trouvés (triés par distance), affichage de ${listings.length}`);
 
         return {
-          listings,
+          listings: filteredListings,
           pagination: {
             currentPage: page,
             totalPages: Math.ceil(allListings.length / limit),
@@ -260,10 +271,21 @@ class ListingService {
         select: 'firstName lastName avatar role createdAt hostProfile'
       });
 
-      console.log(`🎲 Recherche aléatoire: ${listings.length} listings sur ${total} total (page ${page})`);
+      // Exclure les listings bloqués par externalBlocks pour aujourd'hui
+      const now = new Date();
+      const blockedIds = await Listing.find({
+        _id: { $in: listings.map(l => l._id) },
+        externalBlocks: {
+          $elemMatch: { startDate: { $lte: now }, endDate: { $gt: now } }
+        }
+      }).select('_id');
+      const blockedSet = new Set(blockedIds.map(l => l._id.toString()));
+      const filteredListings = listings.filter(l => !blockedSet.has(l._id.toString()));
+
+      console.log(`🎲 Recherche aléatoire: ${filteredListings.length} listings sur ${total} total (page ${page})`);
 
       return {
-        listings,
+        listings: filteredListings,
         pagination: {
           currentPage: page,
           totalPages: Math.ceil(total / limit),
@@ -608,39 +630,62 @@ class ListingService {
 
       // Si des dates sont fournies, filtrer par disponibilité
       if (checkIn && checkOut) {
-        console.log('Filtrage par disponibilité pour les dates:', checkIn, 'à', checkOut);
+        const ci = new Date(checkIn);
+        const co = new Date(checkOut);
+        console.log(`🔍 Filtrage dates: ${ci.toISOString()} → ${co.toISOString()}`);
 
-        // Récupérer toutes les réservations confirmées qui chevauchent les dates demandées
+        // 1. Récupérer les listings occupés par des réservations
         const overlappingBookings = await Booking.find({
           status: { $in: ['pending', 'confirmed'] },
           $or: [
-            // Cas 1: La réservation commence pendant la période demandée
-            {
-              checkIn: { $gte: checkIn, $lt: checkOut }
-            },
-            // Cas 2: La réservation se termine pendant la période demandée
-            {
-              checkOut: { $gt: checkIn, $lte: checkOut }
-            },
-            // Cas 3: La réservation englobe toute la période demandée
-            {
-              checkIn: { $lte: checkIn },
-              checkOut: { $gte: checkOut }
-            }
+            { checkIn: { $gte: ci, $lt: co } },
+            { checkOut: { $gt: ci, $lte: co } },
+            { checkIn: { $lte: ci }, checkOut: { $gte: co } }
           ]
         }).select('listing');
 
-        // Extraire les IDs des listings occupés
-        const occupiedListingIds = overlappingBookings.map(booking => booking.listing.toString());
+        const occupiedByBooking = new Set(overlappingBookings.map(b => b.listing.toString()));
 
-        console.log(`${occupiedListingIds.length} listings occupés trouvés`);
+        // 2. Récupérer les listings bloqués par externalBlocks via requête MongoDB directe
+        const blockedListings = await Listing.find({
+          _id: { $in: listings.map(l => l._id) },
+          externalBlocks: {
+            $elemMatch: {
+              startDate: { $lt: co },
+              endDate: { $gt: ci }
+            }
+          }
+        }).select('_id');
 
-        // Filtrer les listings pour exclure ceux qui sont occupés
-        listings = listings.filter(listing =>
-          !occupiedListingIds.includes(listing._id.toString())
-        );
+        const occupiedByBlock = new Set(blockedListings.map(l => l._id.toString()));
 
-        console.log(`${listings.length} listings disponibles après filtrage`);
+        console.log(`📅 ${occupiedByBooking.size} occupés par réservations, ${occupiedByBlock.size} bloqués manuellement`);
+
+        // 3. Filtrer
+        listings = listings.filter(listing => {
+          const id = listing._id.toString();
+          return !occupiedByBooking.has(id) && !occupiedByBlock.has(id);
+        });
+
+        console.log(`✅ ${listings.length} listings disponibles après filtrage`);
+      } else {
+        // Sans dates : exclure les listings dont un externalBlock couvre aujourd'hui
+        const now = new Date();
+        const blockedToday = await Listing.find({
+          _id: { $in: listings.map(l => l._id) },
+          externalBlocks: {
+            $elemMatch: {
+              startDate: { $lte: now },
+              endDate: { $gt: now }
+            }
+          }
+        }).select('_id');
+
+        const blockedTodaySet = new Set(blockedToday.map(l => l._id.toString()));
+        if (blockedTodaySet.size > 0) {
+          listings = listings.filter(l => !blockedTodaySet.has(l._id.toString()));
+          console.log(`🚫 ${blockedTodaySet.size} listings exclus (bloqués aujourd'hui)`);
+        }
       }
 
       // Pagination

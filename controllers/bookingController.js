@@ -2,6 +2,17 @@ const bookingService = require('../services/bookingService');
 const { validationResult } = require('express-validator');
 
 class BookingController {
+  // Valider une réservation avant paiement
+  async validateBooking(req, res, next) {
+    try {
+      const guestId = req.user.userId;
+      await bookingService.validateBooking(req.body, guestId);
+      res.status(200).json({ success: true, message: 'Réservation valide' });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   // Créer une nouvelle réservation
   async createBooking(req, res, next) {
     try {

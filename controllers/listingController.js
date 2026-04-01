@@ -216,6 +216,7 @@ class ListingController {
       // Extraire les dates
       const checkIn = req.query.checkIn ? new Date(req.query.checkIn) : null;
       const checkOut = req.query.checkOut ? new Date(req.query.checkOut) : null;
+      console.log(`🗓️ searchAvailableListings - checkIn: ${checkIn}, checkOut: ${checkOut}, city: ${req.query.city}`);
 
       const requestingUserId = req.user ? req.user.userId : null;
       const result = await listingService.searchAvailableListings(
@@ -503,6 +504,84 @@ class ListingController {
         success: true,
         suggestions
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Obtenir les blocs externes d'un listing
+  async getExternalBlocks(req, res, next) {
+    try {
+      const { listingId } = req.params;
+      const hostId = req.user.userId;
+      const Listing = require('../models/Listing');
+
+      const listing = await Listing.findOne({ _id: listingId, host: hostId });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
+      }
+
+      res.status(200).json({ success: true, data: { externalBlocks: listing.externalBlocks || [] } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Ajouter un bloc externe (dates indisponibles)
+  async addExternalBlock(req, res, next) {
+    try {
+      const { listingId } = req.params;
+      const { startDate, endDate, reason } = req.body;
+      const hostId = req.user.userId;
+      const Listing = require('../models/Listing');
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ success: false, message: 'startDate et endDate sont requis' });
+      }
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (start >= end) {
+        return res.status(400).json({ success: false, message: 'La date de fin doit être après la date de début' });
+      }
+
+      const listing = await Listing.findOne({ _id: listingId, host: hostId });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
+      }
+
+      const block = { startDate: start, endDate: end, reason: reason || 'Indisponible' };
+      listing.externalBlocks.push(block);
+      await listing.save();
+
+      const addedBlock = listing.externalBlocks[listing.externalBlocks.length - 1];
+      res.status(201).json({ success: true, message: 'Bloc ajouté avec succès', data: { block: addedBlock } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Supprimer un bloc externe
+  async deleteExternalBlock(req, res, next) {
+    try {
+      const { listingId, blockId } = req.params;
+      const hostId = req.user.userId;
+      const Listing = require('../models/Listing');
+
+      const listing = await Listing.findOne({ _id: listingId, host: hostId });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
+      }
+
+      const blockIndex = listing.externalBlocks.findIndex(b => b._id.toString() === blockId);
+      if (blockIndex === -1) {
+        return res.status(404).json({ success: false, message: 'Bloc non trouvé' });
+      }
+
+      listing.externalBlocks.splice(blockIndex, 1);
+      await listing.save();
+
+      res.status(200).json({ success: true, message: 'Bloc supprimé avec succès' });
     } catch (error) {
       next(error);
     }
