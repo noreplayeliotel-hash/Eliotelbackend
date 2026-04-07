@@ -105,9 +105,10 @@ class BookingService {
     }
 
     // Créer une nouvelle réservation
-    async createBooking(bookingData, guestId) {
+    async createBooking(bookingData, guestId, options = {}) {
         try {
             const { listingId, checkIn, checkOut, guests, specialRequests, guestMessage, paymentStatus, paymentDetails, paymentMethod } = bookingData;
+            const { skipExternalBlockCheck = false, skipAvailabilityCheck = false } = options;
 
             console.log('🏗️ BookingService.createBooking appelé:');
             console.log('- guestId:', guestId);
@@ -143,17 +144,21 @@ class BookingService {
             // Vérifier la disponibilité
             const checkInDate = new Date(checkIn);
             const checkOutDate = new Date(checkOut);
-            const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
-            if (!isAvailable) {
-                throw new Error('Ces dates ne sont pas disponibles');
+            if (!skipAvailabilityCheck) {
+                const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
+                if (!isAvailable) {
+                    throw new Error('Ces dates ne sont pas disponibles');
+                }
             }
 
             // Vérifier les blocs externes (réservations manuelles de l'hôte)
-            const hasExternalBlock = (listing.externalBlocks || []).some(block =>
-                new Date(block.startDate) < checkOutDate && new Date(block.endDate) > checkInDate
-            );
-            if (hasExternalBlock) {
-                throw new Error('Ces dates ne sont pas disponibles (bloquées par l\'hôte)');
+            if (!skipExternalBlockCheck) {
+                const hasExternalBlock = (listing.externalBlocks || []).some(block =>
+                    new Date(block.startDate) < checkOutDate && new Date(block.endDate) > checkInDate
+                );
+                if (hasExternalBlock) {
+                    throw new Error('Ces dates ne sont pas disponibles (bloquées par l\'hôte)');
+                }
             }
 
             // Vérifier minStay/maxStay

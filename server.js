@@ -1,8 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const cron = require('node-cron');
 require('dotenv').config();
 const { initializeFirebase } = require('./config/firebase');
+const reminderService = require('./services/reminderService');
 
 const userRoutes = require('./routes/userRoutes');
 const listingRoutes = require('./routes/listingRoutes');
@@ -92,4 +94,19 @@ connectDB().then(() => {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
   });
+
+  // Cron : rappels de réservation chaque jour à 08:00
+  // Format : seconde minute heure jour mois jourSemaine
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[CRON] Lancement des rappels de réservation...');
+    try {
+      await reminderService.runDailyReminders();
+    } catch (err) {
+      console.error('[CRON] Erreur lors des rappels:', err.message);
+    }
+  }, {
+    timezone: 'Africa/Tunis' // Adapter selon votre fuseau horaire
+  });
+
+  console.log('[CRON] Scheduler de rappels activé (08:00 chaque jour)');
 });

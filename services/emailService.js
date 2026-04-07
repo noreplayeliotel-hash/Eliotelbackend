@@ -320,6 +320,74 @@ class EmailService {
         }
     }
 
+    async sendBookingReminderEmail(to, recipientFirstName, booking, type, subject, isHost) {
+        const fmt = (d) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+        const checkInStr = fmt(booking.checkIn);
+        const checkOutStr = fmt(booking.checkOut);
+        const nights = Math.round((new Date(booking.checkOut) - new Date(booking.checkIn)) / (1000 * 60 * 60 * 24));
+        const listingTitle = booking.listing?.title || 'votre logement';
+
+        const bannerColors = { week: '#4A90D9', day: '#F5A623', today: '#27AE60' };
+        const bannerColor = bannerColors[type] || '#FF385C';
+
+        const typeMessages = {
+            week: {
+                headline: '📅 Votre séjour commence dans 7 jours',
+                detail: isHost
+                    ? `<strong>${booking.guest.firstName} ${booking.guest.lastName}</strong> arrive dans 7 jours pour "${listingTitle}". Assurez-vous que tout est prêt !`
+                    : `Votre arrivée chez <strong>${booking.host.firstName} ${booking.host.lastName}</strong> est dans 7 jours. Préparez vos bagages !`
+            },
+            day: {
+                headline: '⏰ Votre séjour commence demain',
+                detail: isHost
+                    ? `<strong>${booking.guest.firstName} ${booking.guest.lastName}</strong> arrive demain pour "${listingTitle}". Dernière vérification !`
+                    : `Votre arrivée chez <strong>${booking.host.firstName} ${booking.host.lastName}</strong> est demain. Tout est prêt ?`
+            },
+            today: {
+                headline: "🏠 C'est aujourd'hui !",
+                detail: isHost
+                    ? `<strong>${booking.guest.firstName} ${booking.guest.lastName}</strong> arrive aujourd'hui pour "${listingTitle}".`
+                    : `Votre check-in chez <strong>${booking.host.firstName} ${booking.host.lastName}</strong> est aujourd'hui. Bon séjour !`
+            }
+        };
+
+        const msg = typeMessages[type] || typeMessages['day'];
+
+        const mailOptions = {
+            from: `"Eliotel" <${process.env.EMAIL_USER}>`,
+            to,
+            subject,
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <div style="background-color: ${bannerColor}; padding: 24px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">${msg.headline}</h1>
+          </div>
+          <div style="padding: 28px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+            <p style="font-size: 15px;">Bonjour <strong>${recipientFirstName}</strong>,</p>
+            <p style="font-size: 15px;">${msg.detail}</p>
+            <div style="background-color: #f9f9f9; border-left: 4px solid ${bannerColor}; padding: 16px 20px; margin: 20px 0; border-radius: 4px;">
+              <div style="font-size: 14px; margin-bottom: 6px;">📍 <strong>${listingTitle}</strong></div>
+              <div style="font-size: 14px; margin-bottom: 4px;">✅ Arrivée : <strong>${checkInStr}</strong></div>
+              <div style="font-size: 14px; margin-bottom: 4px;">🚪 Départ : <strong>${checkOutStr}</strong></div>
+              <div style="font-size: 13px; color: #666;">${nights} nuit${nights > 1 ? 's' : ''}</div>
+            </div>
+            <p style="font-size: 13px; color: #888;">Connectez-vous à l'application Eliotel pour voir les détails de la réservation.</p>
+            <br>
+            <p style="font-size: 14px;">Cordialement,<br><strong>L'équipe Eliotel</strong></p>
+          </div>
+        </div>
+      `
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log(`Reminder email (${type}) sent to:`, to);
+        } catch (error) {
+            console.error(`Error sending reminder email (${type}):`, error);
+            throw error;
+        }
+    }
+
     async sendPaymentLinkEmail(guest, booking, paymentLink) {
         const checkInDate = new Date(booking.checkIn).toLocaleDateString('fr-FR', { 
             day: 'numeric', 

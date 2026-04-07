@@ -208,16 +208,10 @@ class ListingService {
           select: 'firstName lastName avatar role createdAt hostProfile'
         });
 
-        // Exclure les listings bloqués par externalBlocks pour aujourd'hui
-        const now = new Date();
-        const blockedIds = await Listing.find({
-          _id: { $in: listings.map(l => l._id) },
-          externalBlocks: {
-            $elemMatch: { startDate: { $lte: now }, endDate: { $gt: now } }
-          }
-        }).select('_id');
-        const blockedSet = new Set(blockedIds.map(l => l._id.toString()));
-        const filteredListings = listings.filter(l => !blockedSet.has(l._id.toString()));
+        // Ne pas filtrer par externalBlocks ici : un listing bloqué aujourd'hui
+        // peut être réservé pour d'autres dates. Le filtrage se fait uniquement
+        // dans searchAvailableListings quand des dates spécifiques sont fournies.
+        const filteredListings = listings;
 
         console.log(`📍 Recherche géolocalisée: ${allListings.length} listings trouvés (triés par distance), affichage de ${listings.length}`);
 
@@ -271,16 +265,9 @@ class ListingService {
         select: 'firstName lastName avatar role createdAt hostProfile'
       });
 
-      // Exclure les listings bloqués par externalBlocks pour aujourd'hui
-      const now = new Date();
-      const blockedIds = await Listing.find({
-        _id: { $in: listings.map(l => l._id) },
-        externalBlocks: {
-          $elemMatch: { startDate: { $lte: now }, endDate: { $gt: now } }
-        }
-      }).select('_id');
-      const blockedSet = new Set(blockedIds.map(l => l._id.toString()));
-      const filteredListings = listings.filter(l => !blockedSet.has(l._id.toString()));
+      // Ne pas filtrer par externalBlocks ici : un listing bloqué aujourd'hui
+      // peut être réservé pour d'autres dates.
+      const filteredListings = listings;
 
       console.log(`🎲 Recherche aléatoire: ${filteredListings.length} listings sur ${total} total (page ${page})`);
 
@@ -669,23 +656,11 @@ class ListingService {
 
         console.log(`✅ ${listings.length} listings disponibles après filtrage`);
       } else {
-        // Sans dates : exclure les listings dont un externalBlock couvre aujourd'hui
-        const now = new Date();
-        const blockedToday = await Listing.find({
-          _id: { $in: listings.map(l => l._id) },
-          externalBlocks: {
-            $elemMatch: {
-              startDate: { $lte: now },
-              endDate: { $gt: now }
-            }
-          }
-        }).select('_id');
-
-        const blockedTodaySet = new Set(blockedToday.map(l => l._id.toString()));
-        if (blockedTodaySet.size > 0) {
-          listings = listings.filter(l => !blockedTodaySet.has(l._id.toString()));
-          console.log(`🚫 ${blockedTodaySet.size} listings exclus (bloqués aujourd'hui)`);
-        }
+        // Sans dates : afficher tous les listings actifs.
+        // Le filtrage par externalBlocks se fait uniquement quand des dates
+        // spécifiques sont fournies (ci-dessus), car un listing bloqué aujourd'hui
+        // peut très bien être disponible pour d'autres dates.
+        console.log(`✅ ${listings.length} listings retournés (sans filtre de dates)`);
       }
 
       // Pagination

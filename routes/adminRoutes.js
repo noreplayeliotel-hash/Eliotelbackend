@@ -31,11 +31,13 @@ router.get('/listings', adminController.getAllListings);
 router.get('/active-hosts', adminController.getActiveHosts);
 router.get('/active-guests', adminController.getActiveGuests);
 router.patch('/listings/:listingId/status', adminController.updateListingStatus);
+router.patch('/listings/:listingId', adminController.updateListing);
 
 // Gestion des réservations
 router.get('/bookings', adminController.getAllBookings);
 router.post('/bookings', adminController.createBooking);
 router.patch('/bookings/:bookingId', adminController.updateBooking);
+router.patch('/bookings/:bookingId/payment-status', adminController.updateBookingPaymentStatus);
 router.delete('/bookings/:bookingId', adminController.deleteBooking);
 
 // Facturation hôtes

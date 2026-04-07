@@ -271,19 +271,48 @@ class AdminController {
             const { userId } = req.params;
             const { status } = req.body;
 
-            if (!['active', 'suspended'].includes(status)) {
+            if (!['active', 'inactive', 'suspended'].includes(status)) {
                 return res.status(400).json({ success: false, message: 'Statut invalide' });
             }
 
-            const user = await User.findByIdAndUpdate(userId, { status }, { new: true });
+            const user = await User.findById(userId);
+            if (!user) {
+                return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+            }
+
+            user.status = status;
+            await user.save();
 
             res.status(200).json({
                 success: true,
-                message: `Utilisateur ${status === 'active' ? 'activé' : 'suspendu'} avec succès`,
+                message: 'Statut de l\'utilisateur mis à jour',
                 data: user
             });
         } catch (error) {
             next(error);
+        }
+    }
+
+    // Mettre à jour une annonce (externalBlocks, seasonalPricing, etc.)
+    async updateListing(req, res, next) {
+        try {
+            const { listingId } = req.params;
+            const { externalBlocks, seasonalPricing } = req.body;
+
+            const listing = await Listing.findById(listingId).populate('host', 'firstName lastName email phone');
+            if (!listing) {
+                return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
+            }
+
+            if (externalBlocks !== undefined) listing.externalBlocks = externalBlocks;
+            if (seasonalPricing !== undefined) listing.pricing.seasonalPricing = seasonalPricing;
+
+            await listing.save();
+
+            res.status(200).json({ success: true, message: 'Annonce mise à jour', data: listing });
+        } catch (error) {
+            console.error('Error updating listing:', error);
+            res.status(500).json({ success: false, message: error.message });
         }
     }
 
@@ -293,14 +322,11 @@ class AdminController {
             const { listingId } = req.params;
             const { status } = req.body;
 
-            console.log(`Updating listing ${listingId} to status ${status}`);
-
-            const validStatuses = ['draft', 'active', 'inactive', 'suspended'];
-            if (!validStatuses.includes(status)) {
+            if (!['draft', 'active', 'inactive', 'suspended', 'pending', 'rejected', 'archived'].includes(status)) {
                 return res.status(400).json({ success: false, message: 'Statut invalide' });
             }
 
-            const listing = await Listing.findById(listingId);
+            const listing = await Listing.findById(listingId).populate('host', 'firstName lastName avatar email phone');
 
             if (!listing) {
                 return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
@@ -403,7 +429,7 @@ class AdminController {
 
             // Utiliser le service de réservation au lieu de créer directement
             const bookingService = require('../services/bookingService');
-            
+
             // Préparer les données pour le service
             const bookingData = {
                 listingId: listing,
@@ -419,8 +445,11 @@ class AdminController {
 
             console.log('📦 Données préparées pour le service:', JSON.stringify(bookingData, null, 2));
 
-            // Créer la réservation via le service
-            const booking = await bookingService.createBooking(bookingData, guest);
+            // Créer la réservation via le service (admin bypass les blocs externes et la disponibilité)
+            const booking = await bookingService.createBooking(bookingData, guest, {
+                skipExternalBlockCheck: true,
+                skipAvailabilityCheck: true
+            });
 
             console.log('✅ Réservation créée via service avec ID:', booking._id);
             console.log('- paymentMethod final:', booking.paymentMethod);
@@ -432,7 +461,7 @@ class AdminController {
                 if (paymentMethod === 'konnect') {
                     // Générer le lien de paiement Konnect
                     const paymentLink = await this.generateKonnectPaymentLink(booking);
-                    
+
                     // Enregistrer le lien de paiement dans la réservation
                     booking.paymentLink = paymentLink;
                     await booking.save();
@@ -484,7 +513,7 @@ class AdminController {
                     emailService.sendBookingConfirmedEmail(booking.guest.email, booking).catch(err => {
                         console.error('Erreur envoi email confirmation:', err.message);
                     });
-                    
+
                     // Notifier l'hôte de la nouvelle réservation confirmée (async, ne bloque pas)
                     notificationService.sendNotificationToUser(
                         booking.host._id,
@@ -505,7 +534,7 @@ class AdminController {
 
             res.status(201).json({
                 success: true,
-                message: paymentMethod === 'cash' 
+                message: paymentMethod === 'cash'
                     ? 'Réservation créée et confirmée avec succès (paiement en espèces).'
                     : `Réservation créée avec succès. Un lien de paiement ${paymentMethod === 'stripe' ? 'Stripe' : 'Konnect'} a été envoyé au voyageur.`,
                 data: {
@@ -567,11 +596,63 @@ class AdminController {
         }
     }
 
+    // Mettre à jour uniquement le statut de paiement d'une réservation (méthode dédiée plus robuste)
+    async updateBookingPaymentStatus(req, res, next) {
+        try {
+            const { bookingId } = req.params;
+            const { paymentStatus } = req.body;
+
+            console.log(`[updateBookingPaymentStatus] ID: ${bookingId}`, { paymentStatus });
+
+            // 1. Validation rapide du statut
+            const validPaymentStatuses = ['pending', 'paid', 'refunded', 'failed'];
+            if (!paymentStatus || !validPaymentStatuses.includes(paymentStatus)) {
+                return res.status(400).json({ success: false, message: 'Statut de paiement invalide ou manquant' });
+            }
+
+            // 2. Mise à jour atomique
+            const updateData = { paymentStatus: paymentStatus };
+
+            // Logique métier : confirmer si payé
+            // Note: Pour faire ça proprement en une fois, il faudrait d'abord trouver le booking
+            const booking = await Booking.findById(bookingId);
+
+            if (!booking) {
+                return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
+            }
+
+            booking.paymentStatus = paymentStatus;
+            if (paymentStatus === 'paid' && booking.status === 'pending') {
+                booking.status = 'confirmed';
+            }
+
+            await booking.save();
+
+            // 3. Récupérer l'objet complet pour le frontend
+            const updatedBooking = await Booking.findById(bookingId)
+                .populate('guest', 'firstName lastName email phone')
+                .populate('host', 'firstName lastName email phone')
+                .populate('listing', 'title images address');
+
+            return res.status(200).json({
+                success: true,
+                message: 'Statut de paiement mis à jour',
+                data: updatedBooking
+            });
+
+        } catch (error) {
+            console.error('Erreur updateBookingPaymentStatus:', error);
+            next(error); // Laisse le middleware d'erreur gérer la réponse 500
+        }
+    }
+
     // Mettre à jour une réservation (statut ou dates)
     async updateBooking(req, res, next) {
         try {
             const { bookingId } = req.params;
-            const { status, checkIn, checkOut, eliotelPaid } = req.body;
+            const { status, checkIn, checkOut, eliotelPaid, paymentStatus, pricingTotal } = req.body;
+
+            console.log(`[updateBooking] bookingId=${bookingId}, body=`, req.body);
 
             const booking = await Booking.findById(bookingId);
             if (!booking) {
@@ -586,16 +667,42 @@ class AdminController {
                 booking.status = status;
             }
 
+            if (paymentStatus) {
+                const validPaymentStatuses = ['pending', 'paid', 'refunded', 'failed'];
+                if (!validPaymentStatuses.includes(paymentStatus)) {
+                    return res.status(400).json({ success: false, message: 'Statut de paiement invalide' });
+                }
+                booking.paymentStatus = paymentStatus;
+
+                // Synchronisation : si on marque comme payé, on peut automatiquement confirmer
+                if (paymentStatus === 'paid' && booking.status === 'pending') {
+                    booking.status = 'confirmed';
+                }
+            }
+
             if (checkIn) booking.checkIn = new Date(checkIn);
             if (checkOut) booking.checkOut = new Date(checkOut);
             if (typeof eliotelPaid === 'boolean') booking.eliotelPaid = eliotelPaid;
 
+            if (pricingTotal !== undefined) {
+                const val = parseFloat(pricingTotal);
+                if (isNaN(val) || val < 0) {
+                    return res.status(400).json({ success: false, message: 'Prix total invalide' });
+                }
+                booking.pricing.total = val;
+            }
+
             await booking.save();
+
+            const updatedBooking = await Booking.findById(bookingId)
+                .populate('guest', 'firstName lastName email phone')
+                .populate('host', 'firstName lastName email phone')
+                .populate('listing', 'title images address');
 
             res.status(200).json({
                 success: true,
                 message: 'Réservation mise à jour avec succès',
-                data: booking
+                data: updatedBooking
             });
         } catch (error) {
             console.error('Error updating booking:', error);
@@ -981,11 +1088,13 @@ class AdminController {
                 return res.status(400).json({ success: false, message: 'Statut invalide' });
             }
 
-            const report = await Report.findByIdAndUpdate(reportId, { status }, { new: true });
-
+            const report = await Report.findById(reportId);
             if (!report) {
                 return res.status(404).json({ success: false, message: 'Signalement non trouvé' });
             }
+
+            report.status = status;
+            await report.save();
 
             res.status(200).json({
                 success: true,
@@ -1068,7 +1177,7 @@ class AdminController {
     async getPublicListingById(req, res, next) {
         try {
             const { id } = req.params;
-            
+
             const listing = await Listing.findOne({ _id: id, status: 'active' })
                 .populate('host', 'firstName lastName avatar email')
                 .lean();
@@ -1094,10 +1203,10 @@ class AdminController {
         try {
             const { id } = req.params;
             const Review = require('../models/Review');
-            
-            const reviews = await Review.find({ 
-                listing: id, 
-                reviewerRole: 'guest' 
+
+            const reviews = await Review.find({
+                listing: id,
+                reviewerRole: 'guest'
             })
                 .populate('reviewer', 'firstName lastName avatar')
                 .sort({ createdAt: -1 })
