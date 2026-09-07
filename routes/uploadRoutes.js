@@ -6,7 +6,7 @@ const { uploadToImageServer } = require('../middleware/upload');
 const router = express.Router();
 
 // Route pour uploader une ou plusieurs images vers le serveur d'images
-router.post('/upload', upload.array('images', 10), uploadToImageServer, (req, res) => {
+router.post('/upload', upload.array('images'), uploadToImageServer, (req, res) => {
   try {
     // Vérifier s'il y a des URLs d'images
     if (!req.imageUrls || req.imageUrls.length === 0) {

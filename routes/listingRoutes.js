@@ -31,9 +31,9 @@ router.get('/:listingId', [validateUserObjectId, optionalAuth], listingControlle
 router.use(auth);
 
 // Routes pour les hôtes
-router.post('/', [requireHost, upload.array('images', 10), uploadToImageServer], listingController.createListing);
+router.post('/', [requireHost, upload.array('images'), uploadToImageServer], listingController.createListing);
 
-router.put('/:listingId', [requireHost, upload.array('newImages', 10), uploadToImageServer, validateObjectId, validateListingUpdate], listingController.updateListing);
+router.put('/:listingId', [requireHost, upload.array('newImages'), uploadToImageServer, validateObjectId, validateListingUpdate], listingController.updateListing);
 router.delete('/:listingId', [requireHost, validateObjectId], listingController.deleteListing);
 router.patch('/:listingId/status', [requireHost, validateObjectId, validateStatusUpdate], listingController.updateListingStatus);
 

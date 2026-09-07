@@ -34,12 +34,11 @@ const fileFilter = (req, file, cb) => {
   cb(null, true);
 };
 
-// Configuration de multer avec stockage en mémoire
+// Configuration de multer avec stockage en mémoire (sans limite de nombre de photos)
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max par fichier
-    files: 10, // Jusqu'à 10 fichiers
+    fileSize: 20 * 1024 * 1024, // 20MB max par fichier
   },
   fileFilter: fileFilter
 });
