@@ -57,7 +57,14 @@ const listingSchema = new mongoose.Schema({
     guests: { type: Number, required: [true, 'Nombre d\'invités est requis'], min: [1, 'Au moins 1 invité requis'], max: [20, 'Maximum 20 invités'] },
     bedrooms: { type: Number, required: [true, 'Nombre de chambres est requis'], min: [0, 'Nombre de chambres ne peut pas être négatif'] },
     beds: { type: Number, required: [true, 'Nombre de lits est requis'], min: [1, 'Au moins 1 lit requis'] },
-    bathrooms: { type: Number, required: [true, 'Nombre de salles de bain est requis'], min: [0.5, 'Au moins 0.5 salle de bain requise'] }
+    bathrooms: { type: Number, required: [true, 'Nombre de salles de bain est requis'], min: [0.5, 'Au moins 0.5 salle de bain requise'] },
+    bedroomDetails: [{
+      roomNumber: { type: Number, required: true },
+      name: { type: String, default: '' },
+      doubleBeds: { type: Number, default: 0, min: 0 },
+      singleBeds: { type: Number, default: 0, min: 0 },
+      sofaBeds: { type: Number, default: 0, min: 0 }
+    }]
   },
   amenities: [{
     type: String,

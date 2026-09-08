@@ -54,11 +54,29 @@ class ListingController {
         });
       }
 
-      if (listingData.capacity && (!listingData.capacity.guests || !listingData.capacity.bedrooms || !listingData.capacity.beds || !listingData.capacity.bathrooms)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Capacité complète requise (invités, chambres, lits, salles de bain)'
-        });
+      if (listingData.capacity) {
+        if (typeof listingData.capacity === 'string') {
+          try {
+            listingData.capacity = JSON.parse(listingData.capacity);
+          } catch (e) {}
+        }
+        if (listingData.capacity.bedroomDetails && typeof listingData.capacity.bedroomDetails === 'string') {
+          try {
+            listingData.capacity.bedroomDetails = JSON.parse(listingData.capacity.bedroomDetails);
+          } catch (e) {}
+        }
+
+        if (
+          listingData.capacity.guests === undefined ||
+          listingData.capacity.bedrooms === undefined ||
+          listingData.capacity.beds === undefined ||
+          listingData.capacity.bathrooms === undefined
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: 'Capacité complète requise (invités, chambres, lits, salles de bain)'
+          });
+        }
       }
 
       if (listingData.pricing && (!listingData.pricing.basePrice || !listingData.pricing.currency)) {
@@ -369,6 +387,19 @@ class ListingController {
           }
         } catch (e) {
           updateData[key] = value;
+        }
+      }
+
+      if (updateData.capacity) {
+        if (typeof updateData.capacity === 'string') {
+          try {
+            updateData.capacity = JSON.parse(updateData.capacity);
+          } catch (e) {}
+        }
+        if (updateData.capacity.bedroomDetails && typeof updateData.capacity.bedroomDetails === 'string') {
+          try {
+            updateData.capacity.bedroomDetails = JSON.parse(updateData.capacity.bedroomDetails);
+          } catch (e) {}
         }
       }
 
