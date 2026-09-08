@@ -109,6 +109,11 @@ const listingSchema = new mongoose.Schema({
     maxStay: { type: Number, min: [1, 'Séjour maximum doit être au moins 1 nuit'], default: 365 },
     instantBook: { type: Boolean, default: false }
   },
+  highlights: {
+    selfCheckIn: { type: Boolean, default: true },
+    idealLocation: { type: Boolean, default: true },
+    freeCancellation: { type: Boolean, default: true }
+  },
   houseRules: {
     checkIn: { type: String, default: '15:00' },
     checkOut: { type: String, default: '11:00' },

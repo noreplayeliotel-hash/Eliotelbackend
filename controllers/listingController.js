@@ -79,6 +79,12 @@ class ListingController {
         }
       }
 
+      if (listingData.highlights && typeof listingData.highlights === 'string') {
+        try {
+          listingData.highlights = JSON.parse(listingData.highlights);
+        } catch (e) {}
+      }
+
       if (listingData.pricing && (!listingData.pricing.basePrice || !listingData.pricing.currency)) {
         return res.status(400).json({
           success: false,
@@ -401,6 +407,12 @@ class ListingController {
             updateData.capacity.bedroomDetails = JSON.parse(updateData.capacity.bedroomDetails);
           } catch (e) {}
         }
+      }
+
+      if (updateData.highlights && typeof updateData.highlights === 'string') {
+        try {
+          updateData.highlights = JSON.parse(updateData.highlights);
+        } catch (e) {}
       }
 
       console.log('Parsed update data:', updateData);
