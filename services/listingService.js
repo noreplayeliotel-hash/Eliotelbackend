@@ -473,9 +473,38 @@ class ListingService {
         delete updateData.newImages;
       }
 
+      // Extraire le statut souhaité (actif ou en pause/inactif)
+      const requestedStatus = updateData.status;
+      delete updateData.status; // Ne pas stocker le statut dans pendingEdit
+
+      // Si l'annonce était déjà active (ou inactive), elle continue à s'afficher avec ses anciennes données !
+      // La nouvelle modification de contenu est stockée dans pendingEdit en attendant la confirmation de l'administrateur.
+      let updatePayload = {};
+
+      if (listing.status === 'active' || listing.status === 'inactive') {
+        const setFields = {
+          pendingEdit: {
+            ...updateData,
+            submittedAt: new Date()
+          }
+        };
+
+        // Si l'hôte modifie le statut (actif ou en pause), il s'applique DIRECTEMENT sans confirmation admin !
+        if (requestedStatus === 'active' || requestedStatus === 'inactive') {
+          setFields.status = requestedStatus;
+        }
+
+        updatePayload = { $set: setFields };
+      } else {
+        // Annonce draft ou déjà pending : appliquer et mettre status = pending
+        updateData.status = 'pending';
+        updateData.pendingEdit = null;
+        updatePayload = { $set: updateData };
+      }
+
       const updatedListing = await Listing.findByIdAndUpdate(
         listingId,
-        { $set: updateData },
+        updatePayload,
         { new: true, runValidators: true }
       );
 

@@ -111,9 +111,13 @@ class NotificationService {
    */
   async notifyBookingConfirmed(booking) {
     try {
+      const checkInStr = this.formatDate(booking.checkIn);
+      const checkOutStr = this.formatDate(booking.checkOut);
+      const totalAmount = booking.pricing?.total ? `${booking.pricing.total} ${booking.pricing.currency || 'EUR'}` : '';
+
       // Notifier le voyageur
-      const guestTitle = '✅ Réservation confirmée !';
-      const guestBody = `Votre réservation chez ${booking.host.firstName} a été confirmée pour le ${this.formatDate(booking.checkIn)}`;
+      const guestTitle = '✅ Paiement effectué et réservation confirmée !';
+      const guestBody = `Votre paiement ${totalAmount ? `(${totalAmount}) ` : ''}a été validé. Votre réservation chez ${booking.host.firstName} est confirmée du ${checkInStr} au ${checkOutStr}.`;
 
       const guestData = {
         type: 'booking_confirmed',
@@ -126,8 +130,8 @@ class NotificationService {
       const guestNotif = await this.sendNotificationToUser(booking.guest._id, guestTitle, guestBody, guestData);
 
       // Notifier l'hôte
-      const hostTitle = '🎉 Nouvelle réservation !';
-      const hostBody = `Vous avez une nouvelle réservation de ${booking.guest.firstName} ${booking.guest.lastName} pour le ${this.formatDate(booking.checkIn)}`;
+      const hostTitle = '🎉 Paiement reçu et réservation confirmée !';
+      const hostBody = `Paiement validé ${totalAmount ? `(${totalAmount}) ` : ''}! ${booking.guest.firstName} ${booking.guest.lastName} a réservé votre logement du ${checkInStr} au ${checkOutStr}.`;
 
       const hostData = {
         type: 'booking_confirmed',
@@ -178,24 +182,59 @@ class NotificationService {
    */
   async notifyBookingCancelled(booking, cancelledByUserId) {
     try {
-      const cancelledByGuest = booking.guest._id.toString() === cancelledByUserId.toString();
-      const recipientId = cancelledByGuest ? booking.host._id : booking.guest._id;
-      const cancellerName = cancelledByGuest ? booking.guest.firstName : booking.host.firstName;
+      const hostIdStr = (booking.host._id || booking.host).toString();
+      const guestIdStr = (booking.guest._id || booking.guest).toString();
+      const isCancelledByHost = hostIdStr === cancelledByUserId.toString() || booking.cancellation?.cancelledByRole === 'host';
+      const cancelledByGuest = !isCancelledByHost;
 
-      const title = '🚫 Réservation annulée';
-      const body = cancelledByGuest
-        ? `${cancellerName} a annulé sa réservation du ${this.formatDate(booking.checkIn)}`
-        : `${cancellerName} a annulé votre réservation du ${this.formatDate(booking.checkIn)}`;
+      const hostId = booking.host._id || booking.host;
+      const guestId = booking.guest._id || booking.guest;
+      const refundAmount = booking.cancellation?.refundAmount || 0;
+      const currency = booking.pricing?.currency || 'EUR';
 
-      const data = {
+      let hostResult = null;
+      // 1. Notification pour l'hôte : UNIQUEMENT si l'annulation a été faite par le voyageur !
+      // Si l'hôte a lui-même annulé, il ne reçoit pas de notification ("pas pour l'hôte").
+      if (cancelledByGuest) {
+        const cancellerName = booking.guest?.firstName || 'Le voyageur';
+        const hostTitle = '🚫 Réservation annulée par le voyageur';
+        const hostBody = `${cancellerName} a annulé sa réservation du ${this.formatDate(booking.checkIn)}`;
+
+        const hostData = {
+          type: 'booking_cancelled',
+          bookingId: booking._id.toString(),
+          cancelledBy: 'guest',
+          listingId: (booking.listing._id || booking.listing).toString(),
+          status: 'cancelled'
+        };
+
+        hostResult = await this.sendNotificationToUser(hostId, hostTitle, hostBody, hostData);
+      }
+
+      // 2. Notification pour le voyageur (avec confirmation d'annulation et remboursement par virement)
+      const guestTitle = isCancelledByHost
+        ? "🚫 Réservation annulée par l'hôte"
+        : '🚫 Annulation de réservation';
+
+      const guestBody = isCancelledByHost
+        ? `L'hôte ${booking.host?.firstName ? booking.host.firstName + ' ' : ''}a annulé votre réservation du ${this.formatDate(booking.checkIn)}. Vous bénéficiez d'un remboursement intégral qui vous sera versé par virement bancaire sur votre RIB.`
+        : (refundAmount > 0
+            ? `Votre réservation a été annulée. Un remboursement de ${refundAmount.toFixed(2)} ${currency} vous sera versé par virement bancaire sur votre RIB.`
+            : `Votre réservation du ${this.formatDate(booking.checkIn)} a été annulée.`);
+
+      const guestData = {
         type: 'booking_cancelled',
         bookingId: booking._id.toString(),
-        cancelledBy: cancelledByGuest ? 'guest' : 'host',
-        listingId: booking.listing._id.toString(),
+        cancelledBy: isCancelledByHost ? 'host' : 'guest',
+        listingId: (booking.listing._id || booking.listing).toString(),
+        refundAmount: refundAmount.toString(),
+        refundMethod: 'bank_transfer',
         status: 'cancelled'
       };
 
-      return await this.sendNotificationToUser(recipientId, title, body, data);
+      const guestResult = await this.sendNotificationToUser(guestId, guestTitle, guestBody, guestData);
+
+      return { success: true, hostResult, guestResult };
     } catch (error) {
       console.error('Erreur notifyBookingCancelled:', error);
       return { success: false, message: error.message };

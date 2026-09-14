@@ -85,6 +85,12 @@ class ListingController {
         } catch (e) {}
       }
 
+      if (listingData.houseRules && typeof listingData.houseRules === 'string') {
+        try {
+          listingData.houseRules = JSON.parse(listingData.houseRules);
+        } catch (e) {}
+      }
+
       if (listingData.pricing && (!listingData.pricing.basePrice || !listingData.pricing.currency)) {
         return res.status(400).json({
           success: false,
@@ -412,6 +418,12 @@ class ListingController {
       if (updateData.highlights && typeof updateData.highlights === 'string') {
         try {
           updateData.highlights = JSON.parse(updateData.highlights);
+        } catch (e) {}
+      }
+
+      if (updateData.houseRules && typeof updateData.houseRules === 'string') {
+        try {
+          updateData.houseRules = JSON.parse(updateData.houseRules);
         } catch (e) {}
       }
 

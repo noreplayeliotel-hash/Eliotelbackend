@@ -35,6 +35,14 @@ const bookingSchema = new mongoose.Schema({
       message: 'La date de départ doit être après la date d\'arrivée'
     }
   },
+  checkInTime: {
+    type: String,
+    default: null
+  },
+  checkOutTime: {
+    type: String,
+    default: null
+  },
   guests: {
     adults: {
       type: Number,
@@ -151,12 +159,26 @@ const bookingSchema = new mongoose.Schema({
     },
     respondedAt: Date
   },
+  cancellationPolicy: {
+    type: String,
+    enum: ['flexible', 'moderate', 'strict'],
+    default: 'flexible'
+  },
   cancellation: {
     cancelledBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    cancelledByRole: {
+      type: String,
+      enum: ['host', 'guest'],
+      default: 'guest'
+    },
     cancelledAt: Date,
+    cancellationPolicy: {
+      type: String,
+      default: 'flexible'
+    },
     reason: {
       type: String,
       maxlength: [500, 'La raison ne peut pas dépasser 500 caractères']
@@ -164,6 +186,43 @@ const bookingSchema = new mongoose.Schema({
     refundAmount: {
       type: Number,
       default: 0
+    },
+    travelerRefundAmount: {
+      type: Number,
+      default: 0
+    },
+    hostPayoutAmount: {
+      type: Number,
+      default: 0
+    },
+    stripeFeeDeducted: {
+      type: Number,
+      default: 0
+    },
+    rib: {
+      type: String,
+      default: null
+    },
+    refundStatus: {
+      type: String,
+      enum: ['none', 'pending', 'processed', 'completed'],
+      default: 'none'
+    },
+    refundProcessedAt: {
+      type: Date,
+      default: null
+    },
+    hostCancellationFee: {
+      type: Number,
+      default: 0
+    },
+    hostCancellationFeeRate: {
+      type: Number,
+      default: 0
+    },
+    datesBlocked: {
+      type: Boolean,
+      default: false
     }
   },
   review: {
@@ -242,16 +301,27 @@ bookingSchema.methods.confirm = function () {
 };
 
 // Méthode pour annuler une réservation
-bookingSchema.methods.cancel = function (cancelledBy, reason, refundAmount = 0) {
+bookingSchema.methods.cancel = function (cancelledBy, reason, refundAmount = 0, rib = null, stripeFeeDeducted = 0, cancellationPolicy = 'flexible', hostPayoutAmount = 0, hostCancellationFee = 0, hostCancellationFeeRate = 0, datesBlocked = false, cancelledByRole = 'guest') {
   this.status = 'cancelled';
   this.cancellation = {
     cancelledBy,
+    cancelledByRole,
     cancelledAt: new Date(),
+    cancellationPolicy,
     reason,
-    refundAmount
+    refundAmount,
+    travelerRefundAmount: refundAmount,
+    hostPayoutAmount,
+    stripeFeeDeducted,
+    rib: rib || null,
+    refundStatus: refundAmount > 0 ? 'pending' : 'none',
+    hostCancellationFee,
+    hostCancellationFeeRate,
+    datesBlocked
   };
   if (refundAmount > 0) {
     this.paymentStatus = 'refunded';
+    this.paymentDetails = this.paymentDetails || {};
     this.paymentDetails.refundAmount = refundAmount;
     this.paymentDetails.refundDate = new Date();
   }

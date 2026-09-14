@@ -114,6 +114,11 @@ const listingSchema = new mongoose.Schema({
     idealLocation: { type: Boolean, default: true },
     freeCancellation: { type: Boolean, default: true }
   },
+  cancellationPolicy: {
+    type: String,
+    enum: ['flexible', 'moderate', 'strict'],
+    default: 'flexible'
+  },
   houseRules: {
     checkIn: { type: String, default: '15:00' },
     checkOut: { type: String, default: '11:00' },
@@ -134,8 +139,14 @@ const listingSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['draft', 'active', 'inactive', 'suspended'],
+    enum: ['draft', 'active', 'inactive', 'suspended', 'pending'],
     default: 'draft'
+  },
+  // Nouvelles modifications soumises par l'hôte en attente de confirmation par l'administrateur
+  // Pendant ce temps, l'annonce active conserve ses anciennes données en ligne !
+  pendingEdit: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
   },
   ratings: {
     average: { type: Number, min: [0, 'Note ne peut pas être négative'], max: [5, 'Note ne peut pas dépasser 5'], default: 0 },

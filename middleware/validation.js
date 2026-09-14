@@ -130,7 +130,7 @@ const validateListingUpdate = [
 // Validation pour le statut
 const validateStatusUpdate = [
   body('status')
-    .isIn(['active', 'inactive', 'draft'])
+    .isIn(['active', 'inactive', 'draft', 'pending', 'suspended'])
     .withMessage('Statut invalide')
 ];
 

@@ -7,9 +7,12 @@ const {
   validateObjectId
 } = require('../middleware/validation');
 
+const platformConfigController = require('../controllers/platformConfigController');
+
 const router = express.Router();
 
 // Routes publiques (SANS authentification)
+router.get('/platform-fees', platformConfigController.getFees);
 router.get('/:bookingId/payment-info', validateObjectId, bookingController.getPaymentInfo);
 router.post('/:bookingId/init-payment', validateObjectId, bookingController.initKonnectPayment);
 router.post('/:bookingId/create-payment-intent', validateObjectId, bookingController.createStripePaymentIntent);

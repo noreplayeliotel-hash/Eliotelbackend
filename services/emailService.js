@@ -122,16 +122,19 @@ class EmailService {
     }
 
     async sendBookingConfirmedEmail(to, booking) {
+        const totalAmount = booking.pricing?.total ? `${booking.pricing.total} ${booking.pricing.currency || 'EUR'}` : '';
         const mailOptions = {
             from: `"Eliotel" <${process.env.EMAIL_USER}>`,
             to,
-            subject: 'Réservation confirmée !',
+            subject: 'Paiement validé - Réservation confirmée !',
             html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #FF385C;">Réservation confirmée</h2>
+          <h2 style="color: #FF385C;">Paiement validé et réservation confirmée !</h2>
           <p>Bonjour ${booking.guest.firstName},</p>
-          <p>Votre réservation pour <strong>${booking.listing.title}</strong> a été confirmée par l'hôte.</p>
+          <p>Votre paiement a été validé avec succès. Votre réservation pour <strong>${booking.listing.title}</strong> chez <strong>${booking.host.firstName}</strong> est confirmée.</p>
           <p><strong>Dates :</strong> Du ${new Date(booking.checkIn).toLocaleDateString()} au ${new Date(booking.checkOut).toLocaleDateString()}</p>
+          ${totalAmount ? `<p><strong>Montant payé :</strong> ${totalAmount}</p>` : ''}
+          <p>Vous pouvez contacter votre hôte à tout moment depuis la messagerie de l'application.</p>
           <p>Préparez vos valises !</p>
           <br>
           <p>Cordialement,</p>
@@ -142,9 +145,38 @@ class EmailService {
 
         try {
             await this.transporter.sendMail(mailOptions);
-            console.log('Booking confirmed email sent to:', to);
+            console.log('Booking confirmed email sent to guest:', to);
         } catch (error) {
-            console.error('Error sending email:', error);
+            console.error('Error sending guest email:', error);
+        }
+    }
+
+    async sendBookingConfirmedHostEmail(to, booking) {
+        const totalAmount = booking.pricing?.total ? `${booking.pricing.total} ${booking.pricing.currency || 'EUR'}` : '';
+        const mailOptions = {
+            from: `"Eliotel" <${process.env.EMAIL_USER}>`,
+            to,
+            subject: 'Paiement reçu - Nouvelle réservation confirmée !',
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #FF385C;">Paiement reçu et réservation confirmée</h2>
+          <p>Bonjour ${booking.host.firstName},</p>
+          <p>Bonne nouvelle ! Le voyageur <strong>${booking.guest.firstName} ${booking.guest.lastName}</strong> a effectué son paiement et sa réservation pour <strong>${booking.listing.title}</strong> est désormais confirmée.</p>
+          <p><strong>Dates :</strong> Du ${new Date(booking.checkIn).toLocaleDateString()} au ${new Date(booking.checkOut).toLocaleDateString()}</p>
+          ${totalAmount ? `<p><strong>Montant payé :</strong> ${totalAmount}</p>` : ''}
+          <p>Vous pouvez dès à présent échanger avec le voyageur via la messagerie Eliotel pour organiser son arrivée.</p>
+          <br>
+          <p>Cordialement,</p>
+          <p>L'équipe Eliotel</p>
+        </div>
+      `
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            console.log('Booking confirmed email sent to host:', to);
+        } catch (error) {
+            console.error('Error sending host email:', error);
         }
     }
 
@@ -244,17 +276,23 @@ class EmailService {
     async sendPaymentConfirmationEmail(host, bookings, totalAmount) {
         const monthYear = new Date(bookings[0].checkIn).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
-        const bookingsHtml = bookings.map(b => `
+        const bookingsHtml = bookings.map(b => {
+            const isCancelled = b.status === 'cancelled';
+            const payout = isCancelled
+                ? (b.cancellation?.hostPayoutAmount || 0)
+                : Math.max(0, (b.pricing?.total || 0) - (b.pricing?.serviceFee || 0));
+            return `
             <tr>
                 <td style="padding: 12px; border-bottom: 1px solid #eee;">
                     <div style="font-weight: bold; color: #333;">${b.listing.title}</div>
                     <div style="font-size: 12px; color: #666;">Voyageur: ${b.guest.firstName} ${b.guest.lastName}</div>
                 </td>
                 <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; color: #333;">
-                    ${b.pricing.total} €
+                    ${payout} €
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         const mailOptions = {
             from: `"Eliotel" <${process.env.EMAIL_USER}>`,

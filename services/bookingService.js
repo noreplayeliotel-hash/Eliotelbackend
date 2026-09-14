@@ -19,6 +19,22 @@ function getSeasonalPrice(date, basePrice, seasonalPricing) {
     return basePrice;
 }
 
+// Normalise une date pour le calendrier de réservation (UTC midi pour éviter les décalages de fuseau horaire)
+function normalizeBookingDate(dateInput) {
+    if (!dateInput) return null;
+    if (typeof dateInput === 'string') {
+        const match = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            const year = parseInt(match[1], 10);
+            const month = parseInt(match[2], 10) - 1;
+            const day = parseInt(match[3], 10);
+            return new Date(Date.UTC(year, month, day, 12, 0, 0));
+        }
+    }
+    const d = new Date(dateInput);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
+}
+
 class BookingService {
     // Calculer le prix d'une réservation (avec prix saisonniers)
     async calculatePrice(listingId, checkIn, checkOut, guestsCount) {
@@ -28,8 +44,8 @@ class BookingService {
                 throw new Error('Annonce non trouvée');
             }
 
-            const checkInDate = new Date(checkIn);
-            const checkOutDate = new Date(checkOut);
+            const checkInDate = normalizeBookingDate(checkIn);
+            const checkOutDate = normalizeBookingDate(checkOut);
             const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
 
             if (nights <= 0) {
@@ -46,8 +62,15 @@ class BookingService {
                 subtotal += price;
             }
 
+            const PlatformConfig = require('../models/PlatformConfig');
+            const platformConfig = await PlatformConfig.getOrCreateDefault();
+
             const cleaningFee = listing.pricing.cleaningFee || 0;
-            const serviceFee = listing.pricing.serviceFee || 0;
+            // Frais de service dynamique configuré en base de données (ex: 12% aligné Airbnb)
+            let serviceFee = listing.pricing.serviceFee || 0;
+            if (!serviceFee || serviceFee <= 0) {
+                serviceFee = Math.round(subtotal * (platformConfig.guestServiceFeeRate || 0.12) * 100) / 100;
+            }
             const total = subtotal + cleaningFee + serviceFee;
 
             return {
@@ -82,8 +105,8 @@ class BookingService {
             throw new Error('Les animaux ne sont pas autorisés dans cette annonce');
         }
 
-        const checkInDate = new Date(checkIn);
-        const checkOutDate = new Date(checkOut);
+        const checkInDate = normalizeBookingDate(checkIn);
+        const checkOutDate = normalizeBookingDate(checkOut);
         const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
         if (!isAvailable) throw new Error('Ces dates ne sont pas disponibles');
 
@@ -107,7 +130,7 @@ class BookingService {
     // Créer une nouvelle réservation
     async createBooking(bookingData, guestId, options = {}) {
         try {
-            const { listingId, checkIn, checkOut, guests, specialRequests, guestMessage, paymentStatus, paymentDetails, paymentMethod } = bookingData;
+            const { listingId, checkIn, checkOut, checkInTime, checkOutTime, guests, specialRequests, guestMessage, paymentStatus, paymentDetails, paymentMethod } = bookingData;
             const { skipExternalBlockCheck = false, skipAvailabilityCheck = false } = options;
 
             console.log('🏗️ BookingService.createBooking appelé:');
@@ -142,8 +165,8 @@ class BookingService {
             }
 
             // Vérifier la disponibilité
-            const checkInDate = new Date(checkIn);
-            const checkOutDate = new Date(checkOut);
+            const checkInDate = normalizeBookingDate(checkIn);
+            const checkOutDate = normalizeBookingDate(checkOut);
             if (!skipAvailabilityCheck) {
                 const isAvailable = await Booking.checkAvailability(listingId, checkInDate, checkOutDate);
                 if (!isAvailable) {
@@ -171,7 +194,7 @@ class BookingService {
             }
 
             // Calculer les prix via la nouvelle méthode
-            const pricing = await this.calculatePrice(listingId, checkIn, checkOut, totalGuestsCount);
+            const pricing = await this.calculatePrice(listingId, checkInDate, checkOutDate, totalGuestsCount);
 
             // Déterminer le statut initial selon la méthode de paiement
             let initialStatus = 'pending';
@@ -195,8 +218,11 @@ class BookingService {
                 host: listing.host._id,
                 checkIn: checkInDate,
                 checkOut: checkOutDate,
+                checkInTime: checkInTime || listing.houseRules?.checkIn || null,
+                checkOutTime: checkOutTime || listing.houseRules?.checkOut || null,
                 guests,
                 pricing,
+                cancellationPolicy: listing.cancellationPolicy || 'flexible',
                 specialRequests,
                 guestMessage,
                 status: paymentStatus === 'paid' ? 'confirmed' : initialStatus,
@@ -217,7 +243,7 @@ class BookingService {
 
             // Populer les données pour la réponse
             await booking.populate([
-                { path: 'listing', select: 'title images address' },
+                { path: 'listing', select: 'title images address cancellationPolicy' },
                 { path: 'guest', select: 'firstName lastName email avatar phone' },
                 { path: 'host', select: 'firstName lastName email avatar phone' }
             ]);
@@ -239,10 +265,11 @@ class BookingService {
                     console.error('Erreur lors de l\'envoi des notifications de nouvelle réservation:', err);
                 });
             } else if (booking.status === 'confirmed') {
-                // Si réservation instantanée, notifier le voyageur de la confirmation
+                // Notifier le voyageur ET l'hôte (notification in-app et email de confirmation pour les deux)
                 Promise.all([
                     notificationService.notifyBookingConfirmed(booking),
-                    emailService.sendBookingConfirmedEmail(booking.guest.email, booking)
+                    emailService.sendBookingConfirmedEmail(booking.guest.email, booking),
+                    emailService.sendBookingConfirmedHostEmail(booking.host.email, booking)
                 ]).catch(err => {
                     console.error('Erreur lors de l\'envoi des notifications de confirmation:', err);
                 });
@@ -351,13 +378,14 @@ class BookingService {
             await booking.populate([
                 { path: 'listing', select: 'title images' },
                 { path: 'guest', select: 'firstName lastName email' },
-                { path: 'host', select: 'firstName lastName' }
+                { path: 'host', select: 'firstName lastName email' }
             ]);
 
-            // Envoyer une notification au voyageur
+            // Envoyer une notification au voyageur et à l'hôte
             Promise.all([
                 notificationService.notifyBookingConfirmed(booking),
-                emailService.sendBookingConfirmedEmail(booking.guest.email, booking)
+                emailService.sendBookingConfirmedEmail(booking.guest.email, booking),
+                emailService.sendBookingConfirmedHostEmail(booking.host.email, booking)
             ]).catch(err => {
                 console.error('Erreur lors de l\'envoi des notifications de confirmation:', err);
             });
@@ -412,7 +440,7 @@ class BookingService {
     }
 
     // Annuler une réservation
-    async cancelBooking(bookingId, userId, reason) {
+    async cancelBooking(bookingId, userId, reason, rib = null) {
         try {
             const booking = await Booking.findById(bookingId);
             if (!booking) {
@@ -428,30 +456,188 @@ class BookingService {
                 throw new Error('Cette réservation ne peut pas être annulée');
             }
 
-            // Calculer le remboursement selon la politique d'annulation
-            let refundAmount = 0;
             const now = new Date();
             const checkIn = new Date(booking.checkIn);
-            const daysUntilCheckIn = Math.ceil((checkIn - now) / (1000 * 60 * 60 * 24));
-
-            // Politique d'annulation flexible (exemple)
-            if (daysUntilCheckIn >= 7) {
-                refundAmount = booking.pricing.total; // Remboursement complet
-            } else if (daysUntilCheckIn >= 1) {
-                refundAmount = booking.pricing.total * 0.5; // 50% de remboursement
+            if (now >= checkIn) {
+                throw new Error('Impossible d\'annuler une réservation dont le séjour a déjà commencé.');
             }
-            // Sinon pas de remboursement
 
-            await booking.cancel(userId, reason, refundAmount);
+            // Récupérer la politique d'annulation de la réservation ou de l'annonce
+            let policy = booking.cancellationPolicy;
+            if (!policy) {
+                const Listing = require('../models/Listing');
+                const listingDoc = await Listing.findById(booking.listing).select('cancellationPolicy');
+                policy = listingDoc?.cancellationPolicy || 'flexible';
+            }
+            policy = (policy || 'flexible').toLowerCase();
+
+            // Calcul du remboursement selon la politique d'annulation Airbnb (Flexible, Ferme, Stricte) :
+            const PlatformConfig = require('../models/PlatformConfig');
+            const platformConfig = await PlatformConfig.getOrCreateDefault();
+
+            const createdAt = new Date(booking.createdAt || booking._id.getTimestamp());
+            const hoursSinceBooking = (now - createdAt) / (1000 * 60 * 60);
+
+            const msUntilCheckIn = checkIn - now;
+            const hoursUntilCheckIn = msUntilCheckIn / (1000 * 60 * 60);
+            const daysUntilCheckIn = Math.ceil(msUntilCheckIn / (1000 * 60 * 60 * 24));
+
+            // Décomposition des montants
+            const cleaningFee = booking.pricing.cleaningFee || 0;
+            const baseNights = booking.pricing.subtotal || Math.max(0, booking.pricing.total - cleaningFee);
+            const hostCommissionRate = platformConfig.hostServiceFeeRate !== undefined ? platformConfig.hostServiceFeeRate : 0.03;
+
+            // Déterminer si c'est l'hôte qui annule la réservation
+            const hostIdStr = (booking.host._id || booking.host).toString();
+            const isHostCancelling = hostIdStr === userId.toString();
+            const cancelledByRole = isHostCancelling ? 'host' : 'guest';
+
+            let travelerRefundRate = 0; // 1.0 = 100%, 0.5 = 50%, 0.0 = 0%
+            let hostPayoutRate = 0;     // 1.0 = 100%, 0.5 = 50%, 0.0 = 0%
+            let hostCancellationFee = 0;
+            let hostCancellationFeeRate = 0;
+            let datesBlocked = false;
+
+            if (isHostCancelling) {
+                // Si l'hôte annule : Eliotel ne retourne rien à l'hôte (0,00 €),
+                // le voyageur est intégralement remboursé (100% nuitées + ménage)
+                travelerRefundRate = 1.0;
+                hostPayoutRate = 0.0;
+
+                // Pénalité financière Airbnb pour l'hôte (10% à 50%) sur les politiques Ferme et Stricte + Blocage des dates
+                if (policy === 'moderate') {
+                    datesBlocked = true;
+                    if (daysUntilCheckIn >= 30) {
+                        hostCancellationFeeRate = 0.10; // 10% si > 30 jours
+                    } else if (daysUntilCheckIn >= 7) {
+                        hostCancellationFeeRate = 0.25; // 25% entre 30j et 7j
+                    } else {
+                        hostCancellationFeeRate = 0.50; // 50% à moins de 7 jours
+                    }
+                } else if (policy === 'strict') {
+                    datesBlocked = true;
+                    if (daysUntilCheckIn >= 30) {
+                        hostCancellationFeeRate = 0.10; // 10% si > 30 jours
+                    } else if (daysUntilCheckIn >= 14) {
+                        hostCancellationFeeRate = 0.25; // 25% entre 30j et 14j
+                    } else {
+                        hostCancellationFeeRate = 0.50; // 50% à moins de 14 jours
+                    }
+                }
+
+                if (hostCancellationFeeRate > 0) {
+                    hostCancellationFee = Math.round(booking.pricing.total * hostCancellationFeeRate * 100) / 100;
+                }
+
+                // Bloquer les dates sur l'annonce pour empêcher l'hôte de relouer
+                if (datesBlocked && booking.listing) {
+                    try {
+                        const Listing = require('../models/Listing');
+                        await Listing.findByIdAndUpdate(booking.listing, {
+                            $push: {
+                                externalBlocks: {
+                                    startDate: booking.checkIn,
+                                    endDate: booking.checkOut,
+                                    reason: `Dates bloquées suite à annulation hôte (politique ${policy})`,
+                                    createdAt: new Date()
+                                }
+                            }
+                        });
+                        console.log(`[HostCancellation] Dates ${booking.checkIn} - ${booking.checkOut} bloquées sur le listing ${booking.listing}`);
+                    } catch (blockErr) {
+                        console.error('Erreur lors du blocage des dates du listing:', blockErr);
+                    }
+                }
+            } else if (policy === 'flexible') {
+                // Flexible :
+                // - Jusqu'à 24h avant l'arrivée : voyageur 100% nuitées (+ ménage), hôte 0%
+                // - Moins de 24h avant l'arrivée : voyageur 0% nuitées (+ ménage), hôte 100% nuitées (- com 3%)
+                if (hoursUntilCheckIn >= 24) {
+                    travelerRefundRate = 1.0;
+                    hostPayoutRate = 0.0;
+                } else {
+                    travelerRefundRate = 0.0;
+                    hostPayoutRate = 1.0;
+                }
+            } else if (policy === 'moderate') { // "Ferme"
+                // Ferme :
+                // - Jusqu'à 30 jours avant l'arrivée : voyageur 100% nuitées (+ ménage), hôte 0%
+                // - Entre 30 jours et 7 jours avant l'arrivée : voyageur 50% nuitées (+ ménage), hôte 50% nuitées (- com 3%)
+                // - Moins de 7 jours avant l'arrivée : voyageur 0% nuitées (+ ménage), hôte 100% nuitées (- com 3%)
+                if (daysUntilCheckIn >= 30) {
+                    travelerRefundRate = 1.0;
+                    hostPayoutRate = 0.0;
+                } else if (daysUntilCheckIn >= 7) {
+                    travelerRefundRate = 0.5;
+                    hostPayoutRate = 0.5;
+                } else {
+                    travelerRefundRate = 0.0;
+                    hostPayoutRate = 1.0;
+                }
+            } else if (policy === 'strict') {
+                // Stricte :
+                // - Dans les 48h suivant la réservation (si arrivée > 14 jours) : voyageur 100% nuitées (+ ménage), hôte 0%
+                // - Jusqu'à 14 jours avant l'arrivée (après les 48h) : voyageur 50% nuitées (+ ménage), hôte 50% nuitées (- com 3%)
+                // - Moins de 14 jours avant l'arrivée : voyageur 0% nuitées (+ ménage), hôte 100% nuitées (- com 3%)
+                if (hoursSinceBooking <= 48 && daysUntilCheckIn >= 14) {
+                    travelerRefundRate = 1.0;
+                    hostPayoutRate = 0.0;
+                } else if (daysUntilCheckIn >= 14) {
+                    travelerRefundRate = 0.5;
+                    hostPayoutRate = 0.5;
+                } else {
+                    travelerRefundRate = 0.0;
+                    hostPayoutRate = 1.0;
+                }
+            } else {
+                // Défaut : flexible
+                if (hoursUntilCheckIn >= 24) {
+                    travelerRefundRate = 1.0;
+                    hostPayoutRate = 0.0;
+                } else {
+                    travelerRefundRate = 0.0;
+                    hostPayoutRate = 1.0;
+                }
+            }
+
+            // Calcul remboursement voyageur :
+            // Nuitées remboursées + Frais de ménage remboursés à 100% (non consommé)
+            let refundAmount = Math.round(((baseNights * travelerRefundRate) + cleaningFee) * 100) / 100;
+            if (travelerRefundRate === 0 && cleaningFee === 0) {
+                refundAmount = 0;
+            }
+
+            // Déduction des frais Stripe réduits selon PlatformConfig (1.2% + 0.18€) uniquement si annulation voyageur
+            let stripeFeeDeducted = 0;
+            if (!isHostCancelling && booking.paymentMethod === 'stripe' && refundAmount > 0) {
+                const stripePct = platformConfig.stripeFeePercent !== undefined ? platformConfig.stripeFeePercent : 0.012;
+                const stripeFixed = platformConfig.stripeFeeFixed !== undefined ? platformConfig.stripeFeeFixed : 0.18;
+                stripeFeeDeducted = Math.round((booking.pricing.total * stripePct + stripeFixed) * 100) / 100;
+                refundAmount = Math.max(0, Math.round((refundAmount - stripeFeeDeducted) * 100) / 100);
+            }
+
+            // Calcul du versement hôte (si annulation par le voyageur selon barème). Si l'hôte annule : 0
+            let hostPayoutAmount = 0;
+            if (!isHostCancelling && hostPayoutRate > 0) {
+                hostPayoutAmount = Math.max(0, Math.round((baseNights * hostPayoutRate * (1 - hostCommissionRate)) * 100) / 100);
+            }
+
+            // Mettre à jour le RIB de l'utilisateur si fourni
+            if (rib && rib.trim().length > 0) {
+                const User = require('../models/User');
+                await User.findByIdAndUpdate(userId, { rib: rib.trim() });
+            }
+
+            await booking.cancel(userId, reason, refundAmount, rib, stripeFeeDeducted, policy, hostPayoutAmount, hostCancellationFee, hostCancellationFeeRate, datesBlocked, cancelledByRole);
             await booking.populate([
                 { path: 'guest', select: 'firstName lastName email' },
                 { path: 'host', select: 'firstName lastName email' },
-                { path: 'listing', select: 'title' }
+                { path: 'listing', select: 'title cancellationPolicy' }
             ]);
 
-            // Envoyer une notification à l'autre partie
-            const isCancelledByHost = userId.toString() === booking.host._id.toString();
-            const recipientEmail = isCancelledByHost ? booking.guest.email : booking.host.email;
+            // Notification et email d'annulation :
+            // Si l'hôte annule, la notification et l'email sont envoyés uniquement au voyageur
+            const recipientEmail = isHostCancelling ? booking.guest.email : booking.host.email;
 
             Promise.all([
                 notificationService.notifyBookingCancelled(booking, userId),
@@ -583,8 +769,8 @@ class BookingService {
 
             const isAvailable = await Booking.checkAvailability(
                 listingId,
-                new Date(checkIn),
-                new Date(checkOut)
+                normalizeBookingDate(checkIn),
+                normalizeBookingDate(checkOut)
             );
 
             return {
@@ -610,14 +796,17 @@ class BookingService {
                 throw new Error('Annonce non trouvée');
             }
 
+            const normStart = normalizeBookingDate(startDate);
+            const normEnd = normalizeBookingDate(endDate);
+
             // Récupérer toutes les réservations confirmées ou en attente dans la période
             const bookings = await Booking.find({
                 listing: listingId,
                 status: { $in: ['confirmed', 'pending'] },
                 $or: [
-                    { checkIn: { $gte: new Date(startDate), $lte: new Date(endDate) } },
-                    { checkOut: { $gte: new Date(startDate), $lte: new Date(endDate) } },
-                    { checkIn: { $lte: new Date(startDate) }, checkOut: { $gte: new Date(endDate) } }
+                    { checkIn: { $gte: normStart, $lte: normEnd } },
+                    { checkOut: { $gte: normStart, $lte: normEnd } },
+                    { checkIn: { $lte: normStart }, checkOut: { $gte: normEnd } }
                 ]
             }).select('checkIn checkOut status');
 
@@ -633,8 +822,8 @@ class BookingService {
             });
 
             // Ajouter les dates bloquées par les blocs externes
-            const rangeStart = new Date(startDate);
-            const rangeEnd = new Date(endDate);
+            const rangeStart = normStart;
+            const rangeEnd = normEnd;
             const externalBlocks = listing.externalBlocks || [];
             externalBlocks.forEach(block => {
                 const blockStart = new Date(block.startDate);

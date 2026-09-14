@@ -174,10 +174,10 @@ class BookingController {
       }
 
       const { bookingId } = req.params;
-      const { reason } = req.body;
+      const { reason, rib } = req.body;
       const userId = req.user.userId;
 
-      const booking = await bookingService.cancelBooking(bookingId, userId, reason);
+      const booking = await bookingService.cancelBooking(bookingId, userId, reason, rib);
 
       res.status(200).json({
         success: true,
@@ -290,7 +290,7 @@ class BookingController {
 
       const query = {
         host: hostObjectId,
-        status: { $in: ['confirmed', 'completed'] }  // Toutes les réservations confirmées ou complétées
+        status: { $in: ['confirmed', 'completed', 'cancelled'] }  // Réservations confirmées, complétées ou annulées
       };
 
       if (month && year) {
@@ -343,6 +343,8 @@ class BookingController {
                 total: "$pricing.total",
                 status: "$status",
                 eliotelPaid: "$eliotelPaid",
+                pricing: "$pricing",
+                cancellation: "$cancellation",
                 guest: {
                   firstName: "$guestInfo.firstName",
                   lastName: "$guestInfo.lastName",
@@ -673,10 +675,15 @@ class BookingController {
           paymentStatus: booking.paymentStatus
         });
 
-        // Envoyer email de confirmation (async, ne bloque pas)
+        // Envoyer notifications et emails de confirmation pour l'hôte et le voyageur (async, ne bloque pas)
         const emailService = require('../services/emailService');
-        emailService.sendBookingConfirmedEmail(booking.guest.email, booking).catch(err => {
-          console.error('Erreur envoi email confirmation:', err.message);
+        const notificationService = require('../services/notificationService');
+        Promise.all([
+          notificationService.notifyBookingConfirmed(booking),
+          emailService.sendBookingConfirmedEmail(booking.guest.email, booking),
+          emailService.sendBookingConfirmedHostEmail(booking.host.email, booking)
+        ]).catch(err => {
+          console.error('Erreur envoi notifications/emails confirmation:', err.message);
         });
 
         res.status(200).json({

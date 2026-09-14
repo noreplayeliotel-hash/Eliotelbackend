@@ -40,6 +40,10 @@ router.patch('/bookings/:bookingId', adminController.updateBooking);
 router.patch('/bookings/:bookingId/payment-status', adminController.updateBookingPaymentStatus);
 router.delete('/bookings/:bookingId', adminController.deleteBooking);
 
+// Remboursements clients (Annulations & Virements)
+router.get('/client-refunds', adminController.getClientRefunds);
+router.post('/client-refunds/:bookingId/process', adminController.processClientRefund);
+
 // Facturation hôtes
 router.get('/billing/summary', adminController.getBillingSummary);
 router.get('/billing/history', adminController.getPaymentHistory);
@@ -56,5 +60,10 @@ router.delete('/reports/:reportId', adminController.deleteReport);
 
 // Notifications
 router.post('/notifications/broadcast', adminController.sendBroadcastNotification);
+
+// Configuration des frais plateforme (Backoffice)
+const platformConfigController = require('../controllers/platformConfigController');
+router.get('/fees', platformConfigController.getFees);
+router.put('/fees', platformConfigController.updateFees);
 
 module.exports = router;

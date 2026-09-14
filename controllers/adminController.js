@@ -14,6 +14,8 @@ class AdminController {
         // Lier les méthodes au contexte de l'instance
         this.generateKonnectPaymentLink = this.generateKonnectPaymentLink.bind(this);
         this.createBooking = this.createBooking.bind(this);
+        this.getClientRefunds = this.getClientRefunds.bind(this);
+        this.processClientRefund = this.processClientRefund.bind(this);
     }
 
     // Vérifier s'il existe au moins un admin
@@ -87,9 +89,56 @@ class AdminController {
             const totalListings = await Listing.countDocuments();
             const totalBookings = await Booking.countDocuments();
 
-            // Revenus totaux (confirmés)
-            const confirmedBookings = await Booking.find({ status: 'confirmed' });
+            // Revenus totaux (confirmés et complétés)
+            const confirmedBookings = await Booking.find({ status: { $in: ['confirmed', 'completed'] } });
             const totalRevenue = confirmedBookings.reduce((sum, booking) => sum + (booking.pricing.total || 0), 0);
+
+            // Réservations annulées & calcul des remboursements clients selon conditions d'annulation
+            const cancelledBookings = await Booking.find({ status: 'cancelled' })
+                .populate('guest', 'firstName lastName email phone rib avatar')
+                .populate('listing', 'title images')
+                .sort({ 'cancellation.cancelledAt': -1, updatedAt: -1 });
+
+            let totalClientRefunds = 0;
+            let pendingClientRefunds = 0;
+            let completedClientRefunds = 0;
+            let pendingClientRefundsCount = 0;
+
+            const clientRefundsList = cancelledBookings.map(b => {
+                const c = b.cancellation || {};
+                let refAmount = 0;
+                if (c.refundAmount !== undefined && c.refundAmount !== null) {
+                    refAmount = Number(c.refundAmount);
+                } else if (c.travelerRefundAmount !== undefined && c.travelerRefundAmount !== null) {
+                    refAmount = Number(c.travelerRefundAmount);
+                } else if (c.cancelledByRole === 'host') {
+                    refAmount = Number(b.pricing?.total || 0);
+                }
+
+                totalClientRefunds += refAmount;
+                const isCompleted = c.refundStatus === 'completed' || b.paymentStatus === 'refunded';
+                if (isCompleted) {
+                    completedClientRefunds += refAmount;
+                } else {
+                    pendingClientRefunds += refAmount;
+                    pendingClientRefundsCount++;
+                }
+
+                return {
+                    _id: b._id,
+                    guest: b.guest,
+                    listing: b.listing,
+                    totalPrice: b.pricing?.total || 0,
+                    refundAmount: refAmount,
+                    cancellationPolicy: b.cancellationPolicy || c.cancellationPolicy || 'flexible',
+                    cancelledByRole: c.cancelledByRole || 'guest',
+                    cancelledAt: c.cancelledAt || b.updatedAt,
+                    refundStatus: c.refundStatus || (isCompleted ? 'completed' : 'pending'),
+                    reason: c.reason || '',
+                    paymentMethod: b.paymentMethod,
+                    rib: c.rib || (typeof b.guest === 'object' ? b.guest?.rib : null)
+                };
+            });
 
             // Listings par statut
             const activeListings = await Listing.countDocuments({ status: 'active' });
@@ -109,13 +158,19 @@ class AdminController {
                         totalUsers,
                         totalListings,
                         totalBookings,
-                        totalRevenue
+                        totalRevenue,
+                        totalClientRefunds,
+                        pendingClientRefunds,
+                        completedClientRefunds,
+                        pendingClientRefundsCount,
+                        totalCancelledBookings: cancelledBookings.length
                     },
                     listings: {
                         active: activeListings,
                         pending: pendingListings
                     },
-                    recentBookings
+                    recentBookings,
+                    clientRefunds: clientRefundsList.slice(0, 5)
                 }
             });
         } catch (error) {
@@ -293,25 +348,111 @@ class AdminController {
         }
     }
 
-    // Mettre à jour une annonce (externalBlocks, seasonalPricing, etc.)
+    // Mettre à jour une annonce (édition complète par l'administrateur ou externalBlocks / seasonalPricing)
     async updateListing(req, res, next) {
         try {
             const { listingId } = req.params;
-            const { externalBlocks, seasonalPricing } = req.body;
-
             const listing = await Listing.findById(listingId).populate('host', 'firstName lastName email phone');
             if (!listing) {
                 return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
             }
 
-            if (externalBlocks !== undefined) listing.externalBlocks = externalBlocks;
-            if (seasonalPricing !== undefined) listing.pricing.seasonalPricing = seasonalPricing;
+            const allowedFields = [
+                'title', 'description', 'propertyType', 'roomType',
+                'status', 'cancellationPolicy', 'amenities'
+            ];
+
+            allowedFields.forEach(field => {
+                if (req.body[field] !== undefined) {
+                    listing[field] = req.body[field];
+                }
+            });
+
+            // Address
+            if (req.body.address && typeof req.body.address === 'object') {
+                listing.address = {
+                    ...listing.address.toObject(),
+                    ...req.body.address
+                };
+            }
+
+            // Capacity
+            if (req.body.capacity && typeof req.body.capacity === 'object') {
+                listing.capacity = {
+                    ...listing.capacity.toObject(),
+                    ...req.body.capacity
+                };
+            }
+
+            // Pricing
+            if (req.body.pricing && typeof req.body.pricing === 'object') {
+                if (req.body.pricing.basePrice !== undefined) {
+                    listing.pricing.basePrice = Number(req.body.pricing.basePrice);
+                }
+                if (req.body.pricing.currency !== undefined) {
+                    listing.pricing.currency = req.body.pricing.currency;
+                }
+                if (req.body.pricing.cleaningFee !== undefined) {
+                    listing.pricing.cleaningFee = Number(req.body.pricing.cleaningFee);
+                }
+                if (req.body.pricing.serviceFee !== undefined) {
+                    listing.pricing.serviceFee = Number(req.body.pricing.serviceFee);
+                }
+                if (req.body.pricing.seasonalPricing !== undefined) {
+                    listing.pricing.seasonalPricing = req.body.pricing.seasonalPricing;
+                }
+            } else if (req.body.seasonalPricing !== undefined) {
+                listing.pricing.seasonalPricing = req.body.seasonalPricing;
+            }
+
+            // External blocks
+            if (req.body.externalBlocks !== undefined) {
+                listing.externalBlocks = req.body.externalBlocks;
+            }
+
+            // House rules
+            if (req.body.houseRules && typeof req.body.houseRules === 'object') {
+                listing.houseRules = {
+                    ...listing.houseRules.toObject(),
+                    ...req.body.houseRules
+                };
+            }
+
+            // Images
+            if (req.body.images && Array.isArray(req.body.images)) {
+                listing.images = req.body.images;
+            }
+
+            // Location coordinates
+            if (req.body.location && Array.isArray(req.body.location.coordinates)) {
+                listing.location = {
+                    type: 'Point',
+                    coordinates: req.body.location.coordinates
+                };
+            } else if (req.body.latitude !== undefined && req.body.longitude !== undefined) {
+                listing.location = {
+                    type: 'Point',
+                    coordinates: [Number(req.body.longitude), Number(req.body.latitude)]
+                };
+            }
+
+            // Highlights
+            if (req.body.highlights && typeof req.body.highlights === 'object') {
+                listing.highlights = {
+                    ...(listing.highlights ? (listing.highlights.toObject ? listing.highlights.toObject() : listing.highlights) : {}),
+                    ...req.body.highlights
+                };
+            }
+
+            if (req.body.clearPendingEdit === true) {
+                listing.pendingEdit = null;
+            }
 
             await listing.save();
 
-            res.status(200).json({ success: true, message: 'Annonce mise à jour', data: listing });
+            res.status(200).json({ success: true, message: 'Annonce mise à jour avec succès', data: listing });
         } catch (error) {
-            console.error('Error updating listing:', error);
+            console.error('Error updating listing by admin:', error);
             res.status(500).json({ success: false, message: error.message });
         }
     }
@@ -320,11 +461,7 @@ class AdminController {
     async updateListingStatus(req, res, next) {
         try {
             const { listingId } = req.params;
-            const { status } = req.body;
-
-            if (!['draft', 'active', 'inactive', 'suspended', 'pending', 'rejected', 'archived'].includes(status)) {
-                return res.status(400).json({ success: false, message: 'Statut invalide' });
-            }
+            const { status, rejectPendingEdit, applyPendingEdit } = req.body;
 
             const listing = await Listing.findById(listingId).populate('host', 'firstName lastName avatar email phone');
 
@@ -332,12 +469,61 @@ class AdminController {
                 return res.status(404).json({ success: false, message: 'Annonce non trouvée' });
             }
 
-            listing.status = status;
+            // Si l'admin souhaite rejeter les modifications soumises par l'hôte
+            if (rejectPendingEdit) {
+                listing.pendingEdit = null;
+                await listing.save();
+                return res.status(200).json({
+                    success: true,
+                    message: 'Modifications en attente rejetées. L\'annonce conserve ses anciennes données.',
+                    data: listing
+                });
+            }
+
+            if (status && !['draft', 'active', 'inactive', 'suspended', 'pending', 'rejected', 'archived'].includes(status)) {
+                return res.status(400).json({ success: false, message: 'Statut invalide' });
+            }
+
+            // Si l'admin approuve/active l'annonce ou demande expressément d'appliquer le pendingEdit,
+            // on applique les nouvelles modifications sur l'annonce et on vide pendingEdit !
+            if ((status === 'active' || applyPendingEdit) && listing.pendingEdit) {
+                const edits = listing.pendingEdit;
+                const fields = ['title', 'description', 'propertyType', 'roomType', 'cancellationPolicy', 'amenities'];
+                fields.forEach(f => {
+                    if (edits[f] !== undefined) listing[f] = edits[f];
+                });
+                if (edits.address) {
+                    listing.address = { ...listing.address.toObject(), ...edits.address };
+                }
+                if (edits.location && edits.location.coordinates) {
+                    listing.location = edits.location;
+                }
+                if (edits.capacity) {
+                    listing.capacity = { ...listing.capacity.toObject(), ...edits.capacity };
+                }
+                if (edits.pricing) {
+                    listing.pricing = { ...listing.pricing.toObject(), ...edits.pricing };
+                }
+                if (edits.images && edits.images.length > 0) {
+                    listing.images = edits.images;
+                }
+                if (edits.houseRules) {
+                    listing.houseRules = { ...listing.houseRules.toObject(), ...edits.houseRules };
+                }
+                if (edits.highlights) {
+                    listing.highlights = { ...listing.highlights.toObject(), ...edits.highlights };
+                }
+                listing.pendingEdit = null;
+            }
+
+            if (status) {
+                listing.status = status;
+            }
             await listing.save();
 
             res.status(200).json({
                 success: true,
-                message: `Statut de l'annonce mis à jour : ${status}`,
+                message: `Annonce mise à jour avec succès (statut : ${listing.status})`,
                 data: listing
             });
         } catch (error) {
@@ -692,6 +878,26 @@ class AdminController {
                 booking.pricing.total = val;
             }
 
+            // Mise à jour des informations d'annulation, remboursement et pénalité (Admin)
+            if (req.body.cancellation) {
+                if (!booking.cancellation) booking.cancellation = {};
+                const c = req.body.cancellation;
+                if (c.refundStatus !== undefined) booking.cancellation.refundStatus = c.refundStatus;
+                if (c.refundAmount !== undefined) booking.cancellation.refundAmount = Number(c.refundAmount);
+                if (c.travelerRefundAmount !== undefined) booking.cancellation.travelerRefundAmount = Number(c.travelerRefundAmount);
+                if (c.hostCancellationFee !== undefined) booking.cancellation.hostCancellationFee = Number(c.hostCancellationFee);
+                if (c.hostCancellationFeeRate !== undefined) booking.cancellation.hostCancellationFeeRate = Number(c.hostCancellationFeeRate);
+                if (c.hostPayoutAmount !== undefined) booking.cancellation.hostPayoutAmount = Number(c.hostPayoutAmount);
+                if (c.datesBlocked !== undefined) booking.cancellation.datesBlocked = Boolean(c.datesBlocked);
+                if (c.reason !== undefined) booking.cancellation.reason = c.reason;
+                if (c.cancellationPolicy !== undefined) booking.cancellation.cancellationPolicy = c.cancellationPolicy;
+
+                if (c.refundStatus === 'completed') {
+                    booking.paymentStatus = 'refunded';
+                }
+                booking.markModified('cancellation');
+            }
+
             await booking.save();
 
             const updatedBooking = await Booking.findById(bookingId)
@@ -732,17 +938,20 @@ class AdminController {
             });
         } catch (error) {
             console.error('Error deleting booking:', error);
-            next(error);
+            res.status(500).json({ success: false, message: error.message });
         }
     }
 
-    // Obtenir le récapitulatif de facturation par hôte
+    // Obtenir le résumé de facturation pour les hôtes
     async getBillingSummary(req, res, next) {
         try {
             const { month, year } = req.query;
             const query = {
-                status: { $in: ['confirmed', 'completed'] },
-                eliotelPaid: { $ne: true }
+                $or: [
+                    { status: { $in: ['confirmed', 'completed'] }, eliotelPaid: { $ne: true } },
+                    { status: 'cancelled', 'cancellation.hostCancellationFee': { $gt: 0 }, eliotelPaid: { $ne: true } },
+                    { status: 'cancelled', 'cancellation.hostPayoutAmount': { $gt: 0 }, eliotelPaid: { $ne: true } }
+                ]
             };
 
             if (month && year) {
@@ -774,9 +983,38 @@ class AdminController {
                 },
                 { $unwind: { path: "$listingInfo", preserveNullAndEmptyArrays: true } },
                 {
+                    $addFields: {
+                        bookingPayout: {
+                            $cond: [
+                                { $eq: ["$status", "cancelled"] },
+                                { $ifNull: ["$cancellation.hostPayoutAmount", 0] },
+                                {
+                                    $subtract: [
+                                        "$pricing.total",
+                                        { $ifNull: ["$pricing.serviceFee", 0] }
+                                    ]
+                                }
+                            ]
+                        },
+                        bookingPenalty: {
+                            $cond: [
+                                { $eq: ["$status", "cancelled"] },
+                                { $ifNull: ["$cancellation.hostCancellationFee", 0] },
+                                0
+                            ]
+                        }
+                    }
+                },
+                {
                     $group: {
                         _id: "$host",
-                        totalAmount: { $sum: "$pricing.total" },
+                        grossAmount: { $sum: "$bookingPayout" },
+                        totalPenalties: { $sum: "$bookingPenalty" },
+                        totalAmount: {
+                            $sum: {
+                                $subtract: ["$bookingPayout", "$bookingPenalty"]
+                            }
+                        },
                         bookingsCount: { $sum: 1 },
                         bookings: {
                             $push: {
@@ -784,7 +1022,14 @@ class AdminController {
                                 checkIn: "$checkIn",
                                 checkOut: "$checkOut",
                                 total: "$pricing.total",
+                                serviceFee: "$pricing.serviceFee",
+                                subtotal: "$pricing.subtotal",
+                                cleaningFee: "$pricing.cleaningFee",
                                 status: "$status",
+                                eliotelPaid: "$eliotelPaid",
+                                cancellation: "$cancellation",
+                                bookingPayout: "$bookingPayout",
+                                bookingPenalty: "$bookingPenalty",
                                 guest: {
                                     firstName: "$guestInfo.firstName",
                                     lastName: "$guestInfo.lastName",
@@ -819,6 +1064,8 @@ class AdminController {
                             rib: "$hostDetails.rib",
                             ribImage: "$hostDetails.ribImage"
                         },
+                        grossAmount: 1,
+                        totalPenalties: 1,
                         totalAmount: 1,
                         bookingsCount: 1,
                         bookings: 1
@@ -870,9 +1117,38 @@ class AdminController {
                 },
                 { $unwind: { path: "$listingInfo", preserveNullAndEmptyArrays: true } },
                 {
+                    $addFields: {
+                        bookingPayout: {
+                            $cond: [
+                                { $eq: ["$status", "cancelled"] },
+                                { $ifNull: ["$cancellation.hostPayoutAmount", 0] },
+                                {
+                                    $subtract: [
+                                        "$pricing.total",
+                                        { $ifNull: ["$pricing.serviceFee", 0] }
+                                    ]
+                                }
+                            ]
+                        },
+                        bookingPenalty: {
+                            $cond: [
+                                { $eq: ["$status", "cancelled"] },
+                                { $ifNull: ["$cancellation.hostCancellationFee", 0] },
+                                0
+                            ]
+                        }
+                    }
+                },
+                {
                     $group: {
                         _id: "$host",
-                        totalAmount: { $sum: "$pricing.total" },
+                        grossAmount: { $sum: "$bookingPayout" },
+                        totalPenalties: { $sum: "$bookingPenalty" },
+                        totalAmount: {
+                            $sum: {
+                                $subtract: ["$bookingPayout", "$bookingPenalty"]
+                            }
+                        },
                         bookingsCount: { $sum: 1 },
                         bookings: {
                             $push: {
@@ -880,7 +1156,14 @@ class AdminController {
                                 checkIn: "$checkIn",
                                 checkOut: "$checkOut",
                                 total: "$pricing.total",
+                                serviceFee: "$pricing.serviceFee",
+                                subtotal: "$pricing.subtotal",
+                                cleaningFee: "$pricing.cleaningFee",
                                 status: "$status",
+                                eliotelPaid: "$eliotelPaid",
+                                cancellation: "$cancellation",
+                                bookingPayout: "$bookingPayout",
+                                bookingPenalty: "$bookingPenalty",
                                 guest: {
                                     firstName: "$guestInfo.firstName",
                                     lastName: "$guestInfo.lastName",
@@ -915,6 +1198,8 @@ class AdminController {
                             rib: "$hostDetails.rib",
                             ribImage: "$hostDetails.ribImage"
                         },
+                        grossAmount: 1,
+                        totalPenalties: 1,
                         totalAmount: 1,
                         bookingsCount: 1,
                         bookings: 1
@@ -955,20 +1240,48 @@ class AdminController {
 
             if (bookings.length > 0) {
                 const host = bookings[0].host;
-                const totalAmount = bookings.reduce((sum, b) => sum + (b.pricing?.total || 0), 0);
+
+                let grossAmount = 0;
+                let totalPenalties = 0;
+
+                bookings.forEach(b => {
+                    if (b.status === 'cancelled') {
+                        grossAmount += (b.cancellation?.hostPayoutAmount || 0);
+                        if (b.cancellation?.cancelledByRole === 'host' || (b.cancellation?.hostCancellationFee && b.cancellation.hostCancellationFee > 0)) {
+                            totalPenalties += (b.cancellation?.hostCancellationFee || 0);
+                        }
+                    } else {
+                        const hostPayout = Math.max(0, (b.pricing?.total || 0) - (b.pricing?.serviceFee || 0));
+                        grossAmount += hostPayout;
+                    }
+                });
+
+                const netAmount = Math.max(0, grossAmount - totalPenalties);
+                const hostDebt = totalPenalties > grossAmount ? (totalPenalties - grossAmount) : 0;
                 const monthName = new Date(bookings[0].checkIn).toLocaleDateString('fr-FR', { month: 'long' });
 
-                // 1. Envoyer l'Email détaillé
-                await emailService.sendPaymentConfirmationEmail(host, bookings, totalAmount);
+                if (netAmount > 0) {
+                    // 1. Envoyer l'Email détaillé
+                    await emailService.sendPaymentConfirmationEmail(host, bookings, netAmount);
 
-                // 2. Envoyer la Notification FCM
-                const notifTitle = '💸 Virement effectué !';
-                const notifBody = `Votre virement de ${totalAmount.toLocaleString()} € pour le mois de ${monthName} a été validé.`;
-                await notificationService.sendNotificationToUser(host._id, notifTitle, notifBody, {
-                    type: 'payment_received',
-                    amount: totalAmount.toString(),
-                    month: monthName
-                });
+                    // 2. Envoyer la Notification FCM
+                    const notifTitle = '💸 Virement effectué !';
+                    const notifBody = `Votre virement de ${netAmount.toLocaleString()} € pour le mois de ${monthName} a été validé.`;
+                    await notificationService.sendNotificationToUser(host._id, notifTitle, notifBody, {
+                        type: 'payment_received',
+                        amount: netAmount.toString(),
+                        month: monthName
+                    });
+                } else if (hostDebt > 0) {
+                    // Notification d'information sans virement (solde négatif)
+                    const notifTitle = '⚖️ Récapitulatif mensuel & Pénalités';
+                    const notifBody = `Votre récapitulatif pour ${monthName} a été clôturé. Suite aux pénalités d'annulation (${totalPenalties.toLocaleString()} €), aucun virement n'a été émis. Un solde débiteur de ${hostDebt.toLocaleString()} € sera déduit de vos prochains versements.`;
+                    await notificationService.sendNotificationToUser(host._id, notifTitle, notifBody, {
+                        type: 'host_debt_notification',
+                        debtAmount: hostDebt.toString(),
+                        month: monthName
+                    });
+                }
             }
 
             res.status(200).json({
@@ -1216,6 +1529,189 @@ class AdminController {
             res.status(200).json({
                 success: true,
                 data: reviews
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    // Obtenir la liste complète des remboursements clients (réservations annulées)
+    async getClientRefunds(req, res, next) {
+        try {
+            const { status, policy, initiator, search } = req.query;
+
+            const query = { status: 'cancelled' };
+
+            // Filtre par initiateur (hôte ou voyageur)
+            if (initiator && initiator !== 'all') {
+                query['cancellation.cancelledByRole'] = initiator;
+            }
+
+            let bookings = await Booking.find(query)
+                .populate('guest', 'firstName lastName email phone rib avatar')
+                .populate('host', 'firstName lastName email phone rib')
+                .populate('listing', 'title images cancellationPolicy address')
+                .sort({ 'cancellation.cancelledAt': -1, updatedAt: -1 });
+
+            // Filtre par statut de remboursement
+            if (status && status !== 'all') {
+                bookings = bookings.filter(b => {
+                    const isCompleted = b.cancellation?.refundStatus === 'completed' || b.paymentStatus === 'refunded';
+                    if (status === 'completed') return isCompleted;
+                    if (status === 'pending') return !isCompleted;
+                    return true;
+                });
+            }
+
+            // Filtre par politique d'annulation si spécifié
+            if (policy && policy !== 'all') {
+                bookings = bookings.filter(b => {
+                    const pol = (b.cancellationPolicy || b.cancellation?.cancellationPolicy || b.listing?.cancellationPolicy || 'flexible').toLowerCase();
+                    return pol === policy.toLowerCase();
+                });
+            }
+
+            // Recherche texte si spécifiée (client, email, annonce, ID, etc.)
+            if (search) {
+                const s = search.toLowerCase();
+                bookings = bookings.filter(b => {
+                    const guestName = `${b.guest?.firstName || ''} ${b.guest?.lastName || ''}`.toLowerCase();
+                    const guestEmail = (b.guest?.email || '').toLowerCase();
+                    const listingTitle = (b.listing?.title || '').toLowerCase();
+                    const bookingId = (b._id || '').toString().toLowerCase();
+                    const rib = (b.cancellation?.rib || b.guest?.rib || '').toLowerCase();
+                    return guestName.includes(s) || guestEmail.includes(s) || listingTitle.includes(s) || bookingId.includes(s) || rib.includes(s);
+                });
+            }
+
+            let totalRefunds = 0;
+            let pendingRefunds = 0;
+            let completedRefunds = 0;
+            let pendingCount = 0;
+            let completedCount = 0;
+
+            const list = bookings.map(b => {
+                const c = b.cancellation || {};
+                let refAmount = 0;
+                if (c.refundAmount !== undefined && c.refundAmount !== null) {
+                    refAmount = Number(c.refundAmount);
+                } else if (c.travelerRefundAmount !== undefined && c.travelerRefundAmount !== null) {
+                    refAmount = Number(c.travelerRefundAmount);
+                } else if (c.cancelledByRole === 'host') {
+                    refAmount = Number(b.pricing?.total || 0);
+                }
+
+                totalRefunds += refAmount;
+                const isCompleted = c.refundStatus === 'completed' || b.paymentStatus === 'refunded';
+                if (isCompleted) {
+                    completedRefunds += refAmount;
+                    completedCount++;
+                } else {
+                    pendingRefunds += refAmount;
+                    pendingCount++;
+                }
+
+                return {
+                    _id: b._id,
+                    booking: b,
+                    guest: b.guest,
+                    host: b.host,
+                    listing: b.listing,
+                    checkIn: b.checkIn,
+                    checkOut: b.checkOut,
+                    totalPrice: b.pricing?.total || 0,
+                    refundAmount: refAmount,
+                    cancellationPolicy: b.cancellationPolicy || c.cancellationPolicy || b.listing?.cancellationPolicy || 'flexible',
+                    cancelledByRole: c.cancelledByRole || 'guest',
+                    cancelledAt: c.cancelledAt || b.updatedAt,
+                    refundStatus: c.refundStatus || (isCompleted ? 'completed' : 'pending'),
+                    refundProcessedAt: c.refundProcessedAt || null,
+                    reason: c.reason || '',
+                    datesBlocked: c.datesBlocked || false,
+                    hostCancellationFee: c.hostCancellationFee || 0,
+                    hostPayoutAmount: c.hostPayoutAmount || 0,
+                    rib: c.rib || (typeof b.guest === 'object' ? b.guest?.rib : null),
+                    paymentMethod: b.paymentMethod,
+                    paymentStatus: b.paymentStatus
+                };
+            });
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    overview: {
+                        totalRefunds,
+                        pendingRefunds,
+                        completedRefunds,
+                        pendingCount,
+                        completedCount,
+                        totalCancelled: bookings.length
+                    },
+                    refunds: list
+                }
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    // Traiter / marquer un virement de remboursement client comme effectué
+    async processClientRefund(req, res, next) {
+        try {
+            const { bookingId } = req.params;
+            const { refundStatus = 'completed', refundAmount, note } = req.body;
+
+            const booking = await Booking.findById(bookingId)
+                .populate('guest', 'firstName lastName email phone rib avatar')
+                .populate('listing', 'title');
+
+            if (!booking) {
+                return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
+            }
+
+            if (!booking.cancellation) {
+                booking.cancellation = {};
+            }
+
+            booking.cancellation.refundStatus = refundStatus;
+            if (refundAmount !== undefined) {
+                booking.cancellation.refundAmount = Number(refundAmount);
+                booking.cancellation.travelerRefundAmount = Number(refundAmount);
+            }
+            if (refundStatus === 'completed') {
+                booking.paymentStatus = 'refunded';
+                booking.cancellation.refundProcessedAt = new Date();
+            } else if (refundStatus === 'pending') {
+                booking.paymentStatus = 'paid';
+                booking.cancellation.refundProcessedAt = null;
+            }
+            if (note) {
+                booking.cancellation.adminNote = note;
+            }
+
+            await booking.save();
+
+            // Notifier le voyageur que le virement a été émis
+            if (refundStatus === 'completed' && booking.guest) {
+                const guestId = booking.guest._id || booking.guest;
+                const finalRefund = booking.cancellation.refundAmount || 0;
+                const notifTitle = '💸 Virement bancaire émis par Eliotel';
+                const notifBody = `Votre virement de remboursement de ${finalRefund.toLocaleString()} € a été envoyé. Les fonds apparaîtront sur votre compte sous 1 à 3 jours ouvrés selon les délais de votre banque.`;
+                try {
+                    await notificationService.sendNotificationToUser(guestId, notifTitle, notifBody, {
+                        type: 'refund_transfer_sent',
+                        bookingId: booking._id.toString(),
+                        amount: finalRefund.toString()
+                    });
+                } catch (notifErr) {
+                    console.error('Error sending refund notification to guest:', notifErr);
+                }
+            }
+
+            res.status(200).json({
+                success: true,
+                message: 'Remboursement client mis à jour avec succès',
+                data: booking
             });
         } catch (error) {
             next(error);
