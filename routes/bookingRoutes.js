@@ -1,0 +1,46 @@
+const express = require('express');
+const bookingController = require('../controllers/bookingController');
+const { auth, requireHost } = require('../middleware/auth');
+const {
+  validateBookingCreation,
+  validateBookingAction,
+  validateObjectId
+} = require('../middleware/validation');
+
+const router = express.Router();
+
+// Routes publiques (SANS authentification)
+router.get('/:bookingId/payment-info', validateObjectId, bookingController.getPaymentInfo);
+router.post('/:bookingId/init-payment', validateObjectId, bookingController.initKonnectPayment);
+router.post('/:bookingId/create-payment-intent', validateObjectId, bookingController.createStripePaymentIntent);
+router.post('/:bookingId/confirm-stripe-payment', validateObjectId, bookingController.confirmStripePayment);
+
+// Toutes les autres routes nécessitent une authentification
+router.use(auth);
+
+// Routes pour les invités et hôtes
+router.post('/', validateBookingCreation, bookingController.createBooking);
+router.post('/validate', bookingController.validateBooking);
+router.post('/calculate-price', bookingController.calculatePrice);
+router.get('/my', bookingController.getMyBookings);
+router.get('/stats', requireHost, bookingController.getBookingStats);
+
+// Historique de paiement pour l'hôte connecté (AVANT les routes avec :bookingId)
+router.get('/payment-history', requireHost, bookingController.getHostPaymentHistory);
+
+// Route avec paramètre dynamique (doit être après les routes spécifiques)
+router.get('/:bookingId', validateObjectId, bookingController.getBookingById);
+
+// Vérifier la disponibilité
+router.get('/availability/:listingId', bookingController.checkAvailability);
+
+// Obtenir les dates occupées
+router.get('/occupied-dates/:listingId', bookingController.getOccupiedDates);
+
+// Actions sur les réservations
+router.patch('/:bookingId/confirm', [requireHost, validateObjectId], bookingController.confirmBooking);
+router.patch('/:bookingId/reject', [requireHost, validateObjectId, validateBookingAction], bookingController.rejectBooking);
+router.patch('/:bookingId/cancel', [validateObjectId, validateBookingAction], bookingController.cancelBooking);
+router.patch('/:bookingId/complete', validateObjectId, bookingController.completeBooking);
+
+module.exports = router;
