@@ -1,0 +1,460 @@
+/* Overlay invisible pour fermer la modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+/* Container de la modal centré */
+.modalContainer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  margin: 0;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Container de la modal utilisateur (z-index plus élevé) */
+.modalContainerUser {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1001;
+  margin: 0;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Contenu de la modal */
+.modalContent {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  width: 650px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.3s ease;
+  margin: 0;
+}
+
+/* Contenu de la modal utilisateur (plus petite) */
+.modalContentUser {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  width: 500px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.3s ease;
+  margin: 0;
+}
+
+/* Header de la modal */
+.modalHeader {
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 12px 12px 0 0;
+}
+
+/* Header avec gradient rouge (réservation) */
+.modalHeaderPrimary {
+  background: linear-gradient(135deg, #FF385C 0%, #E31C5F 100%);
+}
+
+/* Header avec gradient bleu (utilisateur) */
+.modalHeaderSecondary {
+  background: linear-gradient(135deg, #008489 0%, #006d71 100%);
+}
+
+/* Titre de la modal */
+.modalTitle {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  color: white;
+}
+
+/* Sous-titre de la modal */
+.modalSubtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 4px 0 0 0;
+}
+
+/* Bouton de fermeture */
+.closeButton {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+  font-size: 20px;
+  transition: all 0.2s;
+}
+
+.closeButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Corps de la modal */
+.modalBody {
+  padding: 28px;
+}
+
+/* Formulaire */
+.formContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.formContainerUser {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Groupe de champs */
+.fieldGroup {
+  display: flex;
+  gap: 10px;
+}
+
+.fieldGroupGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* Label avec icône */
+.labelWithIcon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Badge de succès */
+.successBadge {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 138, 5, 0.08);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Prévisualisation de l'annonce */
+.listingPreview {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.listingImage {
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.listingInfo {
+  flex: 1;
+}
+
+.listingTitle {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.listingLocation {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: var(--light);
+}
+
+.listingPrice {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Section des dates */
+.datesSection {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+/* Résumé du prix */
+.priceSummary {
+  background: linear-gradient(135deg, rgba(255, 56, 92, 0.05) 0%, rgba(227, 28, 95, 0.05) 100%);
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 56, 92, 0.15);
+}
+
+.priceSummaryTitle {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--dark);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.priceDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.priceRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.1);
+}
+
+.priceTotal {
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 0 0 0;
+  margin-top: 8px;
+  border-top: 2px solid var(--primary);
+}
+
+.priceTotalLabel {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--dark);
+}
+
+.priceTotalValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+/* Footer avec boutons */
+.modalFooter {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.buttonCancel {
+  flex: 1;
+  padding: 14px 24px;
+  background: white;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  color: var(--dark);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.buttonCancel:hover {
+  background: var(--surface);
+  border-color: var(--dark);
+}
+
+.buttonSubmit {
+  flex: 1;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.buttonSubmitPrimary {
+  background: linear-gradient(135deg, #FF385C 0%, #E31C5F 100%);
+  box-shadow: 0 4px 12px rgba(255, 56, 92, 0.3);
+}
+
+.buttonSubmitPrimary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 56, 92, 0.4);
+}
+
+.buttonSubmitSecondary {
+  background: linear-gradient(135deg, #008489 0%, #006d71 100%);
+  box-shadow: 0 4px 12px rgba(0, 132, 137, 0.3);
+}
+
+.buttonSubmitSecondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 132, 137, 0.4);
+}
+
+.buttonSubmit:disabled {
+  background: var(--light);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.buttonSubmit:disabled:hover {
+  transform: none;
+}
+
+/* Loader spinner */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid white;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Bouton nouveau utilisateur */
+.newUserButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 18px;
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  color: var(--dark);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.newUserButton:hover {
+  border-color: var(--primary);
+  background: rgba(255, 56, 92, 0.05);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .modalContent,
+  .modalContentUser {
+    width: 95vw;
+    max-height: 95vh;
+  }
+
+  .modalBody {
+    padding: 20px;
+  }
+
+  .fieldGroupGrid,
+  .datesSection {
+    grid-template-columns: 1fr;
+  }
+}
+/* Options de paiement */
+.paymentOption {
+  padding: 16px 12px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+}
+
+.paymentOption:hover {
+  border-color: var(--primary);
+  background: rgba(255, 56, 92, 0.02);
+}
+
+.paymentOptionSelected {
+  border-color: var(--primary);
+  background: rgba(255, 56, 92, 0.05);
+  box-shadow: 0 2px 8px rgba(255, 56, 92, 0.15);
+}
+
+.paymentIcon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.paymentLabel {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--dark);
+  margin-bottom: 4px;
+}
+
+.paymentDescription {
+  font-size: 11px;
+  color: var(--light);
+}
+
+/* Responsive pour les options de paiement */
+@media (max-width: 768px) {
+  .paymentOption {
+    padding: 12px 8px;
+  }
+  
+  .paymentIcon {
+    font-size: 20px;
+    margin-bottom: 6px;
+  }
+  
+  .paymentLabel {
+    font-size: 13px;
+  }
+  
+  .paymentDescription {
+    font-size: 10px;
+  }
+}

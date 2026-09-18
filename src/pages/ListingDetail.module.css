@@ -1,0 +1,661 @@
+.mapContainer {
+    height: 400px;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    z-index: 1;
+}
+
+.mapContainer .leaflet-container {
+    height: 100%;
+    width: 100%;
+    border-radius: 12px;
+}
+
+.imageGallery {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+
+.imageGallery::-webkit-scrollbar {
+    height: 6px;
+}
+
+.imageGallery::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.imageGallery::-webkit-scrollbar-thumb {
+    background: #FF385C;
+    border-radius: 10px;
+}
+
+.imageGallery::-webkit-scrollbar-thumb:hover {
+    background: #E61E4D;
+}
+
+/* Section Coup de cœur */
+.featuredBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+    border-radius: 50px;
+    margin-bottom: 32px;
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+}
+
+.featuredBadge svg {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+.ratingsContainer {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 48px;
+    padding: 32px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    margin-bottom: 32px;
+}
+
+.globalRating {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    border-right: 1px solid #e5e7eb;
+}
+
+.globalRatingTitle {
+    font-size: 14px;
+    color: #6b7280;
+    margin-bottom: 16px;
+}
+
+.globalRatingBars {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.globalRatingBar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.globalRatingBarLine {
+    flex: 1;
+    height: 4px;
+    background: #e5e7eb;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.globalRatingBarFill {
+    height: 100%;
+    background: #111827;
+}
+
+.ratingsGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.ratingItem {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ratingLabel {
+    font-size: 14px;
+    color: #111827;
+    font-weight: 500;
+}
+
+.ratingValue {
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.ratingIcon {
+    margin-bottom: 8px;
+}
+
+.ratingBar {
+    height: 4px;
+    background: #e5e7eb;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.ratingBarFill {
+    height: 100%;
+    background: #111827;
+    transition: width 0.3s ease;
+}
+
+/* Section Avis */
+.reviewsSection {
+    padding: 32px 0;
+    border-top: 1px solid #e5e7eb;
+    margin-top: 32px;
+}
+
+.reviewsHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.reviewsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 32px;
+}
+
+.reviewCard {
+    padding: 24px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    transition: box-shadow 0.2s;
+}
+
+.reviewCard:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.reviewHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.reviewAvatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #FF385C;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+}
+
+.reviewAuthor {
+    flex: 1;
+}
+
+.reviewName {
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 4px;
+}
+
+.reviewDate {
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.reviewRating {
+    display: flex;
+    gap: 2px;
+}
+
+.reviewText {
+    color: #4b5563;
+    line-height: 1.6;
+    font-size: 15px;
+}
+
+.reviewReadMore {
+    color: #FF385C;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    display: inline-block;
+}
+
+.reviewReadMore:hover {
+    text-decoration: underline;
+}
+
+/* Calendrier de disponibilité */
+.availabilitySection {
+    padding: 32px 0;
+    border-top: 1px solid #e5e7eb;
+    margin-top: 32px;
+}
+
+.availabilityHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.availabilityTitle {
+    font-size: 24px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.clearDatesBtn {
+    color: #111827;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.clearDatesBtn:hover {
+    color: #FF385C;
+}
+
+.calendarContainer {
+    max-width: 100%;
+}
+
+.calendarContainer :global(.react-calendar) {
+    width: 100%;
+    border: none;
+    font-family: inherit;
+}
+
+.calendarContainer :global(.react-calendar__navigation) {
+    display: flex;
+    height: 44px;
+    margin-bottom: 16px;
+}
+
+.calendarContainer :global(.react-calendar__navigation button) {
+    min-width: 44px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    cursor: pointer;
+}
+
+.calendarContainer :global(.react-calendar__navigation button:enabled:hover) {
+    background-color: #f3f4f6;
+    border-radius: 8px;
+}
+
+.calendarContainer :global(.react-calendar__navigation button:disabled) {
+    color: #d1d5db;
+}
+
+.calendarContainer :global(.react-calendar__month-view__weekdays) {
+    text-align: center;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.calendarContainer :global(.react-calendar__month-view__weekdays__weekday) {
+    padding: 8px;
+}
+
+.calendarContainer :global(.react-calendar__tile) {
+    max-width: 100%;
+    padding: 12px 6px;
+    background: none;
+    text-align: center;
+    line-height: 16px;
+    border: none;
+    font-size: 14px;
+    color: #111827;
+    cursor: pointer;
+}
+
+.calendarContainer :global(.react-calendar__tile:enabled:hover) {
+    background-color: #f3f4f6;
+    border-radius: 50%;
+}
+
+.calendarContainer :global(.react-calendar__tile--active) {
+    background: #111827;
+    color: white;
+    border-radius: 50%;
+}
+
+.calendarContainer :global(.react-calendar__tile--range) {
+    background: #111827;
+    color: white;
+}
+
+.calendarContainer :global(.react-calendar__tile--rangeStart) {
+    border-radius: 50%;
+    background: #111827;
+    color: white;
+}
+
+.calendarContainer :global(.react-calendar__tile--rangeEnd) {
+    border-radius: 50%;
+    background: #111827;
+    color: white;
+}
+
+.calendarContainer :global(.react-calendar__tile--now) {
+    background: #fff;
+    font-weight: 600;
+}
+
+.calendarContainer :global(.react-calendar__tile:disabled) {
+    color: #d1d5db;
+    text-decoration: line-through;
+    cursor: not-allowed;
+}
+
+.selectedDatesInfo {
+    margin-top: 24px;
+    padding: 16px;
+    background: #f9fafb;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.globalRatingCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px;
+    background: linear-gradient(135deg, #FF385C 0%, #E61E4D 100%);
+    border-radius: 16px;
+    color: white;
+    margin-bottom: 32px;
+}
+
+.globalRatingScore {
+    font-size: 64px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.globalRatingLabel {
+    font-size: 18px;
+    opacity: 0.95;
+}
+
+/* Boutons flottants sur mobile */
+.mobileContactButtons {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .gridLayout {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .stickyCard {
+        display: none !important;
+    }
+    
+    .mapContainer {
+        height: 300px;
+    }
+    
+    .amenitiesGrid {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .ratingsGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .ratingsContainer {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+    
+    .globalRating {
+        border-right: none;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 24px;
+    }
+    
+    /* Afficher les boutons flottants sur mobile */
+    .mobileContactButtons {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        padding: 12px 16px;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+        gap: 12px;
+        z-index: 1000;
+        border-top: 1px solid #e5e7eb;
+    }
+    
+    .mobileContactButtons a {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 14px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+    
+    .mobileContactButtons .whatsappBtn {
+        background: #25D366;
+        color: white;
+    }
+    
+    .mobileContactButtons .phoneBtn {
+        background: #FF385C;
+        color: white;
+    }
+    
+    /* Ajouter un padding en bas pour éviter que le contenu soit caché par les boutons */
+    .contentWrapper {
+        padding-bottom: 80px;
+    }
+}
+
+/* Barre de contact mobile fixe en bas */
+.mobileContactBar {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobileContactBar {
+        display: block;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        padding: 16px;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        border-top: 1px solid #e5e7eb;
+    }
+    
+    .mobileContactPrice {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 12px;
+        justify-content: center;
+    }
+    
+    .mobilePriceAmount {
+        font-size: 24px;
+        font-weight: 700;
+        color: #111827;
+    }
+    
+    .mobilePriceLabel {
+        font-size: 14px;
+        color: #6b7280;
+    }
+    
+    .mobileContactButtons {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    
+    .mobileWhatsAppBtn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 14px;
+        background: #25D366;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .mobileWhatsAppBtn:active {
+        background: #20BA5A;
+    }
+    
+    .mobileCallBtn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 14px;
+        background: #FF385C;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .mobileCallBtn:active {
+        background: #E61E4D;
+    }
+    
+    .mobileContactText {
+        text-align: center;
+        font-size: 12px;
+        color: #6b7280;
+        margin: 0;
+    }
+    
+    /* Ajouter un padding en bas pour éviter que le contenu soit caché par la barre */
+    .contentWrapper {
+        padding-bottom: 220px !important;
+    }
+}
+
+/* Boutons flottants circulaires sur mobile */
+.floatingContactButtons {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .floatingContactButtons {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        position: fixed;
+        left: 20px;
+        bottom: 20px;
+        z-index: 1000;
+    }
+    
+    .floatingWhatsAppBtn,
+    .floatingCallBtn {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        text-decoration: none;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .floatingWhatsAppBtn {
+        background: #25D366;
+    }
+    
+    .floatingWhatsAppBtn:active {
+        transform: scale(0.95);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .floatingCallBtn {
+        background: #FF385C;
+    }
+    
+    .floatingCallBtn:active {
+        transform: scale(0.95);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Animation d'apparition */
+    .floatingWhatsAppBtn,
+    .floatingCallBtn {
+        animation: fadeInUp 0.5s ease-out;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+}
